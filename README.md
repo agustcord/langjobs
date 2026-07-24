@@ -79,7 +79,7 @@ LangJobs es un proyecto independiente, **no afiliado, asociado ni respaldado por
 
 ### Licencia
 
-© 2026 Jonatan Agustín Córdoba. **Todos los derechos reservados.** Este es un proyecto comercial; la licencia definitiva se definirá al momento de la publicación. El código no puede ser copiado, redistribuido ni utilizado sin autorización expresa del autor.
+© 2026 Jonatan Agustín Córdoba. Distribuido bajo la licencia **[PolyForm Noncommercial 1.0.0](LICENSE.md)**: podés leer, estudiar y usar este código para **cualquier propósito no comercial**; todo uso comercial requiere autorización expresa del autor.
 
 ---
 
