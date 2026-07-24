@@ -61,7 +61,7 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 
 ### Instalación
 
-- **Hoy:** nada que instalar todavía, nya 🐾
+- **Hoy:** nada que instalar todavía
 - **Fase 1:** userscript para [Tampermonkey](https://www.tampermonkey.net/) (se publicará acá con instrucciones)
 - **Fase 2:** extensión nativa para Chrome (modo desarrollador primero, luego Chrome Web Store)
 
@@ -76,6 +76,10 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 ## ⚖️ Aviso legal
 
 LangJobs es un proyecto independiente, **no afiliado, asociado ni respaldado por LinkedIn Corporation ni Microsoft**. "LinkedIn" es marca registrada de LinkedIn Corporation; se menciona únicamente para describir compatibilidad. La extensión no hace scraping, no automatiza acciones y no interactúa con servidores de LinkedIn más allá de la navegación normal del usuario.
+
+### Licencia
+
+© 2026 Jonatan Agustín Córdoba. **Todos los derechos reservados.** Este es un proyecto comercial; la licencia definitiva se definirá al momento de la publicación. El código no puede ser copiado, redistribuido ni utilizado sin autorización expresa del autor.
 
 ---
 

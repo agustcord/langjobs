@@ -1,10 +1,27 @@
-# Memoria local del proyecto (bóveda Obsidian) — NO se sube al repo
+# ── Memoria local del proyecto (bóveda Obsidian) — NUNCA subir al repo ──
 .memory/
 
-# SO / editor
+# ── Sistema operativo ──
 Thumbs.db
 desktop.ini
 .DS_Store
 
-# Node (a futuro)
+# ── Editores / IDEs ──
+.vscode/
+.idea/
+*.swp
+
+# ── Node (Fase 2 en adelante) ──
 node_modules/
+npm-debug.log*
+package-lock.json.bak
+
+# ── Builds / empaquetado de extensión ──
+dist/
+*.zip
+*.crx
+*.pem
+
+# ── Secretos / entorno ──
+.env
+*.key
