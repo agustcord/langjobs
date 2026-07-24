@@ -1,0 +1,10 @@
+# Memoria local del proyecto (bóveda Obsidian) — NO se sube al repo
+.memory/
+
+# SO / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Node (a futuro)
+node_modules/
