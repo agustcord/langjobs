@@ -125,18 +125,20 @@
   const ROLE_ES = new Set([
     'analista', 'lider', 'líder', 'ejecutivo', 'comercial', 'contable', 'procesos',
     'desarrollador', 'programador', 'ingeniero', 'diseñador', 'ventas', 'marketing',
-    'recepcionista', 'operario', 'administrativo', 'contador', 'abogado', 'médico',
+    'recepcionista', 'operario', 'operador', 'administrativo', 'contador', 'abogado', 'médico',
     'enfermero', 'docente', 'profesor', 'auxiliar', 'tecnico', 'técnico', 'gestor',
     'coordinador', 'supervisor', 'encargado', 'responsable', 'asesor', 'consultor',
-    'especialista', 'representante', 'cajero', 'mozo', 'cadete', 'chofer', 'conduct',
+    'especialista', 'representante', 'cajero', 'mozo', 'cadete', 'chofer', 'conductor',
+    'redactor', 'periodista', 'vendedor', 'cobrador', 'secretario', 'jefe', 'empleado',
   ]);
   const ROLE_EN = new Set([
     'analyst', 'leader', 'executive', 'commercial', 'accountant', 'process',
-    'developer', 'engineer', 'designer', 'sales', 'marketing', 'receptionist',
+    'developer', 'engineer', 'sales', 'marketing', 'receptionist',
     'operator', 'administrative', 'accountant', 'lawyer', 'doctor', 'nurse',
     'teacher', 'professor', 'assistant', 'technician', 'manager', 'coordinator',
     'supervisor', 'officer', 'advisor', 'consultant', 'specialist', 'representative',
     'cashier', 'waiter', 'driver', 'recruiter',
+    'lead', 'tech', 'writer', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
   ]);
 
   function roleHint(tokens) {

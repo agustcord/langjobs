@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.6
+// @version      0.2.7
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -316,18 +316,20 @@
   const ROLE_ES = new Set([
     'analista', 'lider', 'líder', 'ejecutivo', 'comercial', 'contable', 'procesos',
     'desarrollador', 'programador', 'ingeniero', 'diseñador', 'ventas', 'marketing',
-    'recepcionista', 'operario', 'administrativo', 'contador', 'abogado', 'médico',
+    'recepcionista', 'operario', 'operador', 'administrativo', 'contador', 'abogado', 'médico',
     'enfermero', 'docente', 'profesor', 'auxiliar', 'tecnico', 'técnico', 'gestor',
     'coordinador', 'supervisor', 'encargado', 'responsable', 'asesor', 'consultor',
-    'especialista', 'representante', 'cajero', 'mozo', 'cadete', 'chofer', 'conduct',
+    'especialista', 'representante', 'cajero', 'mozo', 'cadete', 'chofer', 'conductor',
+    'redactor', 'periodista', 'vendedor', 'cobrador', 'secretario', 'jefe', 'empleado',
   ]);
   const ROLE_EN = new Set([
     'analyst', 'leader', 'executive', 'commercial', 'accountant', 'process',
-    'developer', 'engineer', 'designer', 'sales', 'marketing', 'receptionist',
+    'developer', 'engineer', 'sales', 'marketing', 'receptionist',
     'operator', 'administrative', 'accountant', 'lawyer', 'doctor', 'nurse',
     'teacher', 'professor', 'assistant', 'technician', 'manager', 'coordinator',
     'supervisor', 'officer', 'advisor', 'consultant', 'specialist', 'representative',
     'cashier', 'waiter', 'driver', 'recruiter',
+    'lead', 'tech', 'writer', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
   ]);
 
   function roleHint(tokens) {
