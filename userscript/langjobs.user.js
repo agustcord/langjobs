@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.4.4
+// @version      0.4.5
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -749,6 +749,23 @@
     return data.lang && data.lang !== 'unknown' && data.lang !== config.targetLang;
   }
 
+  // Helper para verificar si un nodo es realmente una tarjeta de la lista izquierda
+  // (ignora botones de 'Solicitud sencilla' o elementos dentro del panel de detalle).
+  function isJobCard(node) {
+    if (!node || !node.tagName) return false;
+    const tag = node.tagName.toUpperCase();
+    if (tag === 'BUTTON' || (tag === 'A' && node.classList && node.classList.contains('jobs-apply-button'))) return false;
+    if (node.closest && (
+      node.closest('.jobs-details') ||
+      node.closest('.jobs-unified-top-card') ||
+      node.closest('.jobs-search-two-pane__details') ||
+      node.closest('.job-details-jobs-in-bugs-content')
+    )) {
+      return false;
+    }
+    return true;
+  }
+
   // ── Inyecta/actualiza los estilos de acción una sola vez ───────────────────
   function ensureStyles(doc) {
     if (!doc || !doc.createElement) return;
@@ -758,11 +775,9 @@
     style.textContent =
       '.' + CLS.hidden + '{display:none !important;}\n' +
       '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
-      // Badge flotante en la esquina superior derecha de cada tarjeta de
-      // vacante. La tarjeta debe ser posicionable (relative) para que el
-      // absolute se ancle a ella, no al viewport.
       '[data-job-id]{position:relative !important;}\n' +
-      '.llf-badge{position:absolute !important;top:8px;right:8px;z-index:2147483647;' +
+      // Posición top:34px para NO tapar el botón nativo de descartar/ocultar de LinkedIn (top:8px)
+      '.llf-badge{position:absolute !important;top:34px !important;right:12px !important;z-index:2147483647;' +
       'display:inline-block;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
       'line-height:1.4;pointer-events:none;}\n';
@@ -771,12 +786,12 @@
 
   // ── Aplica la acción DOM según CONFIG (T1.8) ───────────────────────────────
   function applyAction(card, data, doc, config) {
+    if (!isJobCard(card)) return;
     config = config || CONFIG;
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-    if (!card.classList) return; // sin classList no podemos aplicar acción
-    // Limpiar acciones previas.
+    if (!card.classList) return;
     card.classList.remove(CLS.hidden, CLS.dim);
-    if (config.mode === 'label') return; // solo badge, ya hecho en tagCard
+    if (config.mode === 'label') return;
     if (isUndesired(data, config)) {
       card.classList.add(config.mode === 'hide' ? CLS.hidden : CLS.dim);
     }
@@ -784,6 +799,7 @@
 
   // ── Etiquetado visual (inserta badge flotante; respeta idempotencia salvo force) ─
   function tagCard(card, getDescription, doc, opts) {
+    if (!isJobCard(card)) return { lang: 'unknown' };
     opts = opts || {};
     const data = classify(card, getDescription);
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
@@ -802,9 +818,6 @@
           badge.setAttribute('data-llf-badge', '');
           badge.textContent = b.label;
           badge.style.cssText = 'background:' + b.color + ';';
-          // Insertar al PRINCIPIO de la tarjeta: así queda flotando en la
-          // esquina superior derecha (CSS .llf-badge absolute) sin depender de
-          // dónde esté el título dentro del DOM de LinkedIn.
           if (card.insertBefore) {
             card.insertBefore(badge, card.firstChild);
           } else if (card.appendChild) {
@@ -817,8 +830,8 @@
     return data;
   }
 
-  // ── Procesar una tarjeta con guarda de hash + acción (T1.7 + T1.8 + T1.9) ───
   function processCard(card, getDescription, doc, opts) {
+    if (!isJobCard(card)) return { skipped: true };
     opts = opts || {};
     const h = hashOf(card, doc);
     const prevHash = card.getAttribute && card.getAttribute('data-llf-hash');
@@ -830,27 +843,22 @@
       if (card.setAttribute) card.setAttribute('data-llf-lang', '');
     }
     const data = tagCard(card, getDescription, doc, opts);
-    // T1.9: no degradar. Si la descripción del panel ya nos dio un idioma
-    // confiable (es/en) y ahora la tarjeta se re-procesa sin panel (ej. al
-    // clickear otra vacante) dando 'unknown', mantenemos el lenguaje conocido.
     if (data.lang === 'unknown' && (prevLang === 'es' || prevLang === 'en')) {
       data.lang = prevLang;
     }
     if (card.setAttribute) card.setAttribute('data-llf-hash', h);
-    // Acción según modo (T1.8): label/dim/hide.
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     ensureStyles(document);
     applyAction(card, data, document, opts.config);
     return data;
   }
 
-  // ── Recorrer todas las tarjetas visibles ───────────────────────────────────
-  // Errores por tarjeta acumulados para diagnóstico (?llfdebug=1 los muestra).
   const LAST_ERRORS = [];
   function processAll(root, opts) {
     opts = opts || {};
     if (!root || !root.querySelectorAll) return [];
     const cards = root.querySelectorAll('[data-job-id]');
+    const list = Array.prototype.slice.call(cards).filter(isJobCard);
     // querySelectorAll devuelve un NodeList (tiene forEach pero NO map).
     // Convertir SIEMPRE a Array real para poder usar .map de forma segura
     // en el navegador (en Node mis mocks eran arrays y enmascaraban el bug).
@@ -987,7 +995,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG v0.4.4 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.4.5 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
