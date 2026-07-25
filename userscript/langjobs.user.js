@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.4.3
+// @version      0.4.4
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -311,12 +311,13 @@
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
-    // Heurística de modalidad (v0.4.0 - Opción B):
+    // Heurística de modalidad (v0.4.4 - Opción B):
     // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
-    // sin stopwords en español, marcar como ambiguo (isAmbiguous: true, lang: 'unknown')
-    // para desencadenar el fetch silencioso en segundo plano y resolver a 100% con la descripción completa.
+    // sin tildes en español (accentHits === 0) y con señal débil de español (hitsEs <= 1 por conectores de UI como "en"/"de"),
+    // marcar como ambiguo (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso
+    // y resuelva con la descripción completa a 100% (ej: Caso Fever "Senior Video Editor en Fever").
     const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
-                        hint === 'en' && hitsEs === 0 && accentHits === 0;
+                        hint === 'en' && hitsEs <= 1 && accentHits === 0;
 
     if (isAmbiguous) {
       return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
@@ -394,12 +395,11 @@
     let link = card.querySelector && card.querySelector('a.job-card-list__title--link');
     if (!link) link = card.querySelector && card.querySelector('a[aria-label]');
     if (link) {
-      const aria = link.getAttribute && link.getAttribute('aria-label');
-      if (aria && aria.trim()) return aria.trim();
       const t = (link.textContent || '').replace(/\s+/g, ' ').trim();
       if (t) return t;
+      const aria = link.getAttribute && link.getAttribute('aria-label');
+      if (aria && aria.trim()) return aria.trim();
     }
-    // Respaldo: primer <a> con texto dentro de la tarjeta.
     const anyA = card.querySelector && card.querySelector('a');
     if (anyA) {
       const t = (anyA.textContent || '').replace(/\s+/g, ' ').trim();
@@ -987,7 +987,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG v0.4.3 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.4.4 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

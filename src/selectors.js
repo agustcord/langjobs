@@ -38,12 +38,11 @@
     let link = card.querySelector && card.querySelector('a.job-card-list__title--link');
     if (!link) link = card.querySelector && card.querySelector('a[aria-label]');
     if (link) {
-      const aria = link.getAttribute && link.getAttribute('aria-label');
-      if (aria && aria.trim()) return aria.trim();
       const t = (link.textContent || '').replace(/\s+/g, ' ').trim();
       if (t) return t;
+      const aria = link.getAttribute && link.getAttribute('aria-label');
+      if (aria && aria.trim()) return aria.trim();
     }
-    // Respaldo: primer <a> con texto dentro de la tarjeta.
     const anyA = card.querySelector && card.querySelector('a');
     if (anyA) {
       const t = (anyA.textContent || '').replace(/\s+/g, ' ').trim();

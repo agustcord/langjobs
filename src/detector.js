@@ -120,12 +120,13 @@
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
-    // Heurística de modalidad (v0.4.0 - Opción B):
+    // Heurística de modalidad (v0.4.4 - Opción B):
     // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
-    // sin stopwords en español, marcar como ambiguo (isAmbiguous: true, lang: 'unknown')
-    // para desencadenar el fetch silencioso en segundo plano y resolver a 100% con la descripción completa.
+    // sin tildes en español (accentHits === 0) y con señal débil de español (hitsEs <= 1 por conectores de UI como "en"/"de"),
+    // marcar como ambiguo (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso
+    // y resuelva con la descripción completa a 100% (ej: Caso Fever "Senior Video Editor en Fever").
     const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
-                        hint === 'en' && hitsEs === 0 && accentHits === 0;
+                        hint === 'en' && hitsEs <= 1 && accentHits === 0;
 
     if (isAmbiguous) {
       return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
