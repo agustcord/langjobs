@@ -102,24 +102,55 @@
       .trim();
   }
 
+  function modalityFromCard(card) {
+    if (!card) return 'desconocido';
+    let text = (card.textContent || '') + ' ' + (card.innerHTML || '');
+    if (card.parentElement && card.parentElement.textContent) {
+      text += ' ' + card.parentElement.textContent;
+    }
+    const norm = text.toLowerCase().normalize('NFC');
+    if (norm.includes('híbrido') || norm.includes('hibrido') || norm.includes('hybrid')) {
+      return 'hibrido';
+    }
+    if (norm.includes('presencial') || norm.includes('on-site') || norm.includes('onsite')) {
+      return 'presencial';
+    }
+    if (norm.includes('en remoto') || norm.includes('remoto') || norm.includes('remote')) {
+      return 'remoto';
+    }
+    return 'desconocido';
+  }
+
   // ── API pública ────────────────────────────────────────────────────────────
 
-  // Extrae título/empresa/ubicación de UNA tarjeta (capa semántica + estructural).
+  // Extrae título/empresa/ubicación/modalidad de UNA tarjeta.
   function extractFromCard(card) {
+    const loc = cleanText(locationFromCard(card));
     return {
       jobId: jobIdFromCard(card),
       title: cleanText(titleFromCard(card)),
       company: cleanText(companyFromCard(card)),
-      location: cleanText(locationFromCard(card)),
+      location: loc,
+      modality: modalityFromCard(card),
     };
   }
 
   // ID de la tarjeta activa en la lista (la que muestra el panel de detalle).
-  // Capa semántica: aria-current="page" (de 04_Selectores_DOM.md).
+  // Busca por aria-current="page", aria-current="true", o clases activas de la tarjeta.
   function getActiveJobId(root) {
     if (!root || !root.querySelector) return null;
-    const active = root.querySelector('[aria-current="page"]');
-    return active && active.getAttribute ? active.getAttribute('data-job-id') : null;
+    let active = root.querySelector('[aria-current="page"]') ||
+                 root.querySelector('[aria-current="true"]') ||
+                 root.querySelector('.jobs-search-results-list__list-item--active [data-job-id]') ||
+                 root.querySelector('.job-card-container--active [data-job-id]') ||
+                 root.querySelector('.jobs-search-results-list__list-item--active') ||
+                 root.querySelector('.job-card-container--active');
+    if (!active) return null;
+    if (active.getAttribute && active.getAttribute('data-job-id')) {
+      return active.getAttribute('data-job-id');
+    }
+    const child = active.querySelector && active.querySelector('[data-job-id]');
+    return child && child.getAttribute ? child.getAttribute('data-job-id') : null;
   }
 
   // Texto del panel de detalle (columna derecha) para la vacante activa.

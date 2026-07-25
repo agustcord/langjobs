@@ -81,9 +81,9 @@
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
-    // Texto base disponible siempre: título + empresa + ubicación.
+    // Texto base disponible siempre: título + empresa (pasamos modalidad para la heurística Híbrido/Presencial).
     data.langSource = 'title';
-    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || '') + ' ' + (data.location || '')).lang;
+    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality }).lang;
     // Si está activa y hay descripción, usarla (más fiable) para resolver.
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';

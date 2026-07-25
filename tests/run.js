@@ -33,12 +33,12 @@ const fallos = [];
 const falsosOcultar = [];
 
 for (const caso of CORPUS) {
-  const { lang } = detectLanguage(caso.texto);
+  const { lang } = detectLanguage(caso.texto, caso.opts);
   caso.resultado = lang;
   if (isHit(caso, lang)) {
     hits++;
   } else {
-    fallos.push({ id: caso.id, esperado: caso.esperado, obtuvo: lang, crítico: caso.crítico, nota: caso.nota });
+    fallos.push({ id: caso.id, acepta: caso.acepta, obtuvo: lang, crítico: caso.crítico, nota: caso.nota });
   }
   if (esFalsoOcultar(caso, lang)) {
     falsosOcultar.push(caso.id);
