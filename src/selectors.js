@@ -1,0 +1,159 @@
+/*
+ * LangJobs — Selectores del DOM de LinkedIn en capas (T1.5)
+ * ---------------------------------------------------------------------------
+ * Módulo UMD compartido (userscript / extensión / tests). NO crea el DOM:
+ * recibe nodos (inyección) para poder testearlo en Node sin jsdom.
+ *
+ * Capas (de 04_Selectores_DOM.md):
+ *   1) Semántica (estable): [data-job-id], a[aria-label] (título),
+ *      [aria-label^="Descartar"].
+ *   2) Estructural (respaldo): .job-card-container, .artdeco-entity-lockup__subtitle
+ *      (empresa), .job-card-container__metadata-wrapper li (ubicación),
+ *      .mt4 > p[dir="ltr"] (descripción).
+ *   3) Heurística (último recurso): mayor densidad de texto.
+ *
+ * En el navegador: scanJobs(document). En tests: scanJobs(mockRoot).
+ * Los nodos mock solo necesitan querySelector/querySelectorAll/textContent.
+ */
+(function (root, factory) {
+  if (typeof define === 'function' && define.amd) {
+    define(['./detector.js'], factory);
+  } else if (typeof module === 'object' && module.exports) {
+    module.exports = factory(require('./detector.js'));
+  } else {
+    root.LangJobsSelectors = factory(root.LangJobsDetector);
+  }
+})(typeof self !== 'undefined' ? self : this, function (detector) {
+  'use strict';
+
+  const detectLanguage = detector.detectLanguage;
+
+  // ── Helpers de capa ──────────────────────────────────────────────────────
+
+  // Capa semántica: aria-label del <a> de título (más fiable que el texto).
+  function titleFromCard(card) {
+    const link = card.querySelector && card.querySelector('a.job-card-list__title--link');
+    if (link) {
+      const aria = link.getAttribute && link.getAttribute('aria-label');
+      if (aria && aria.trim()) return aria.trim();
+      // fallback al texto fuerte
+      const strong = link.querySelector && link.querySelector('strong');
+      if (strong && strong.textContent) return strong.textContent.trim();
+    }
+    return '';
+  }
+
+  function companyFromCard(card) {
+    const sub = card.querySelector && card.querySelector('.artdeco-entity-lockup__subtitle');
+    if (sub && sub.textContent) return sub.textContent.trim();
+    return '';
+  }
+
+  function locationFromCard(card) {
+    // Selectores simples encadenados (más robustos + testeables sin jsdom).
+    const meta = card.querySelector && card.querySelector('.job-card-container__metadata-wrapper');
+    if (!meta) return '';
+    const li = meta.querySelector && meta.querySelector('li');
+    if (!li) return '';
+    const span = li.querySelector && li.querySelector('span');
+    if (span && span.textContent) return span.textContent;
+    // fallback: texto directo del <li>
+    if (li.textContent) return li.textContent;
+    return '';
+  }
+
+  function jobIdFromCard(card) {
+    return (card.getAttribute && card.getAttribute('data-job-id')) || '';
+  }
+
+  // Descripción: capa estructural (.mt4 > p[dir="ltr"]), luego .mt4, luego
+  // heurística (nodo con más texto en el root de detalle).
+  function descriptionFromDetail(detailRoot) {
+    if (!detailRoot || !detailRoot.querySelector) return '';
+    const exact = detailRoot.querySelector('.mt4 > p[dir="ltr"]');
+    if (exact && exact.textContent && exact.textContent.trim()) return exact.textContent;
+    const mt4 = detailRoot.querySelector('.mt4');
+    if (mt4 && mt4.textContent && mt4.textContent.trim()) return mt4.textContent;
+    // Heurística: máxima densidad de texto entre hijos directos.
+    let best = '';
+    let bestLen = 0;
+    const children = detailRoot.children || [];
+    for (const child of children) {
+      const t = (child.textContent || '').trim();
+      if (t.length > bestLen) { bestLen = t.length; best = t; }
+    }
+    return best;
+  }
+
+  // Normaliza espacios/entidades básicas del textContent aplanado.
+  function cleanText(t) {
+    return (t || '')
+      .replace(/ /g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // ── API pública ────────────────────────────────────────────────────────────
+
+  // Extrae título/empresa/ubicación de UNA tarjeta (capa semántica + estructural).
+  function extractFromCard(card) {
+    return {
+      jobId: jobIdFromCard(card),
+      title: cleanText(titleFromCard(card)),
+      company: cleanText(companyFromCard(card)),
+      location: cleanText(locationFromCard(card)),
+    };
+  }
+
+  // Detecta idioma de un texto (usa el detector puro).
+  function detect(text) {
+    return detectLanguage(text);
+  }
+
+  // Recorre todas las tarjetas [data-job-id] en `root` y, si se pasa
+  // `getDescription(jobId, card)` que devuelva el texto del detalle, detecta
+  // el idioma de la descripción. Devuelve array de resultados.
+  //    scanJobs(document)                              -> sin descripción
+  //    scanJobs(document, (id, card) => detailText)    -> con idioma de descripción
+  function scanJobs(root, getDescription) {
+    if (!root || !root.querySelectorAll) return [];
+    const cards = root.querySelectorAll('[data-job-id]');
+    const out = [];
+    const list = (typeof cards.forEach === 'function') ? cards : Array.prototype.slice.call(cards);
+    list.forEach(function (card) {
+      const base = extractFromCard(card);
+      const result = {
+        jobId: base.jobId,
+        title: base.title,
+        company: base.company,
+        location: base.location,
+        description: '',
+        lang: 'unknown',
+        langSource: 'none',
+      };
+      let text = '';
+      if (typeof getDescription === 'function') {
+        const desc = getDescription(base.jobId, card) || '';
+        result.description = cleanText(desc);
+        text = result.description;
+        result.langSource = 'description';
+      } else {
+        // Sin detalle: intenta con título+empresa (menos fiable; el detector
+        // dará 'unknown' en títulos cortos a propósito).
+        text = base.title + ' ' + base.company;
+        result.langSource = 'title';
+      }
+      result.lang = detect(text).lang;
+      out.push(result);
+    });
+    return out;
+  }
+
+  return {
+    extractFromCard: extractFromCard,
+    descriptionFromDetail: descriptionFromDetail,
+    scanJobs: scanJobs,
+    detect: detect,
+    cleanText: cleanText,
+  };
+});
