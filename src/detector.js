@@ -26,11 +26,11 @@
 (function (root, factory) {
   const sw = (typeof module === 'object' && module.exports)
     ? require('./stopwords.js')
-    : root.LJF_STOPWORDS;
+    : root.LangJobsStopwords;
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(sw);
   } else {
-    root.LJF_DETECTOR = factory(sw);
+    root.LangJobsDetector = factory(sw);
   }
 }(typeof self !== 'undefined' ? self : this, function (SW) {
   'use strict';

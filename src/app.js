@@ -193,7 +193,10 @@
     opts = opts || {};
     if (!root || !root.querySelectorAll) return [];
     const cards = root.querySelectorAll('[data-job-id]');
-    const list = (typeof cards.forEach === 'function') ? cards : Array.prototype.slice.call(cards);
+    // querySelectorAll devuelve un NodeList (tiene forEach pero NO map).
+    // Convertir SIEMPRE a Array real para poder usar .map de forma segura
+    // en el navegador (en Node mis mocks eran arrays y enmascaraban el bug).
+    const list = Array.prototype.slice.call(cards);
     return list.map(function (card) {
       return processCard(card, opts.getDescription, root, opts);
     });

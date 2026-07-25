@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.1
+// @version      0.2.2
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -48,7 +48,7 @@
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
-    root.LJF_STOPWORDS = factory();
+    root.LangJobsStopwords = factory();
   }
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
@@ -217,11 +217,11 @@
 (function (root, factory) {
   const sw = (typeof module === 'object' && module.exports)
     ? require('./stopwords.js')
-    : root.LJF_STOPWORDS;
+    : root.LangJobsStopwords;
   if (typeof module === 'object' && module.exports) {
     module.exports = factory(sw);
   } else {
-    root.LJF_DETECTOR = factory(sw);
+    root.LangJobsDetector = factory(sw);
   }
 }(typeof self !== 'undefined' ? self : this, function (SW) {
   'use strict';
@@ -720,7 +720,10 @@
     opts = opts || {};
     if (!root || !root.querySelectorAll) return [];
     const cards = root.querySelectorAll('[data-job-id]');
-    const list = (typeof cards.forEach === 'function') ? cards : Array.prototype.slice.call(cards);
+    // querySelectorAll devuelve un NodeList (tiene forEach pero NO map).
+    // Convertir SIEMPRE a Array real para poder usar .map de forma segura
+    // en el navegador (en Node mis mocks eran arrays y enmascaraban el bug).
+    const list = Array.prototype.slice.call(cards);
     return list.map(function (card) {
       return processCard(card, opts.getDescription, root, opts);
     });

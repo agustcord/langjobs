@@ -28,7 +28,7 @@
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
   } else {
-    root.LJF_STOPWORDS = factory();
+    root.LangJobsStopwords = factory();
   }
 }(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
