@@ -20,7 +20,7 @@ const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 // panel de debug (?llfdebug=1) para saber QUÉ versión corre realmente en el
 // navegador del usuario (las regresiones "fantasma" eran versiones viejas
 // cacheadas por raw.githubusercontent/Tampermonkey).
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma

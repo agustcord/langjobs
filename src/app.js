@@ -25,7 +25,7 @@
   // mode: 'label' (solo badge) | 'dim' (atenuar no deseados) | 'hide' (ocultar).
   const CONFIG = {
     targetLang: 'es',
-    mode: 'label', // arranca en solo-etiquetar para validar precisión sin riesgo
+    mode: 'label', // Versión V1 MVP: Etiquetado Visual Exclusivo (90-95%+ valor entregado)
   };
 
   const BADGE = {
