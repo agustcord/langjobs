@@ -40,7 +40,12 @@ const FOOTER = `
   function boot() {
     if (typeof LangJobsApp === 'undefined') return;
     // T1.6: modo "solo etiquetar" (sin ocultar). El filtrado llega en T1.8.
-    LangJobsApp.run(document, {});
+    // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
+    if (LangJobsApp.observe) {
+      LangJobsApp.observe(document, { debounceMs: 150 });
+    } else {
+      LangJobsApp.run(document, {});
+    }
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
