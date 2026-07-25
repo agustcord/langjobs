@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.8
+// @version      0.2.9
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -647,28 +647,23 @@
   }
 
   // ── Clasificación pura (sin tocar el DOM) ──────────────────────────────────
-  // Opción C (T1.10): la señal siempre-disponible es título + empresa. La
-  // UBICACIÓN se excluye de la decisión principal porque sesga a ES en búsquedas
-  // argentinas ("Rosario, Santa Fe, Argentina" aporta stopwords ES que superan el
-  // MARGEN y tapalan el rol EN del título). Solo se usa como último recurso si
-  // título+empresa da unknown. Si la tarjeta está ACTIVA y hay descripción de
-  // panel, esa señal (más fiable) resuelve ambiguos.
+  // Opción C (T1.10) + rollback de v0.2.8 (v0.2.9): en el DOM real de LinkedIn el
+  // título a veces NO se lee del <a> (texto en otra capa), así que excluir la
+  // ubicación dejaba base vacío -> ?? en todas. Restauramos título+empresa+ubicación
+  // en la decisión (como v0.2.7, que funcionaba en campo). El sesgo ES por ubicación
+  // es aceptable para el feed de Rosario (la mayoría ES); el caso Tech Lead EN se
+  // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
+  // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
-    // Decisión principal: título + empresa (sin ubicación).
+    // Texto base disponible siempre: título + empresa + ubicación.
     data.langSource = 'title';
-    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || '')).lang;
-    // Recurso: si sigue ambiguo, sumar la ubicación.
-    if (data.lang === 'unknown' && data.location) {
-      data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || '') + ' ' + data.location).lang;
-      data.langSource = 'title+location';
-    }
+    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || '') + ' ' + (data.location || '')).lang;
     // Si está activa y hay descripción, usarla (más fiable) para resolver.
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
       if (desc && desc.trim()) {
         const descLang = detector.detectLanguage(desc).lang;
-        // La descripción solo mejora si da un idioma concreto (no unknown).
         if (descLang === 'es' || descLang === 'en') {
           data.description = selectors.cleanText(desc);
           data.lang = descLang;
