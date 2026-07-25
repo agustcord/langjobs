@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.9
+// @version      0.3.0
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -777,6 +777,8 @@
   }
 
   // ── Recorrer todas las tarjetas visibles ───────────────────────────────────
+  // Errores por tarjeta acumulados para diagnóstico (?llfdebug=1 los muestra).
+  const LAST_ERRORS = [];
   function processAll(root, opts) {
     opts = opts || {};
     if (!root || !root.querySelectorAll) return [];
@@ -785,8 +787,17 @@
     // Convertir SIEMPRE a Array real para poder usar .map de forma segura
     // en el navegador (en Node mis mocks eran arrays y enmascaraban el bug).
     const list = Array.prototype.slice.call(cards);
-    return list.map(function (card) {
-      return processCard(card, opts.getDescription, root, opts);
+    LAST_ERRORS.length = 0;
+    return list.map(function (card, i) {
+      // BLINDAJE (v0.3.0): una tarjeta con forma inesperada (LinkedIn redeploy)
+      // NO debe matar el loop entero — eso producía "solo la primera tarjeta
+      // tiene badge" cuando processCard lanzaba en la tarjeta 2.
+      try {
+        return processCard(card, opts.getDescription, root, opts);
+      } catch (e) {
+        LAST_ERRORS.push('card[' + i + '] ' + (e && e.message ? e.message : String(e)));
+        return { error: true, lang: 'unknown', jobId: '', message: (e && e.message) || String(e) };
+      }
     });
   }
 
@@ -876,6 +887,7 @@
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
+    LAST_ERRORS: LAST_ERRORS,
     CONFIG: CONFIG,
     BADGE: BADGE,
     CLS: CLS,
@@ -908,6 +920,15 @@
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
           lines.push('LangJobs DEBUG — tarjetas=' + cards.length);
+          // Errores capturados por el blindaje de processAll (v0.3.0): si una
+          // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
+          var errs = LangJobsApp.LAST_ERRORS || [];
+          if (errs.length) {
+            lines.push('ERRORES (' + errs.length + '):');
+            for (var k = 0; k < Math.min(errs.length, 6); k++) lines.push('  ' + errs[k]);
+          } else {
+            lines.push('ERRORES: ninguno');
+          }
           for (var i = 0; i < Math.min(cards.length, 12); i++) {
             var c = cards[i];
             var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;

@@ -19,7 +19,7 @@ const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.9
+// @version      0.3.0
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -62,6 +62,15 @@ const FOOTER = `
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
           lines.push('LangJobs DEBUG — tarjetas=' + cards.length);
+          // Errores capturados por el blindaje de processAll (v0.3.0): si una
+          // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
+          var errs = LangJobsApp.LAST_ERRORS || [];
+          if (errs.length) {
+            lines.push('ERRORES (' + errs.length + '):');
+            for (var k = 0; k < Math.min(errs.length, 6); k++) lines.push('  ' + errs[k]);
+          } else {
+            lines.push('ERRORES: ninguno');
+          }
           for (var i = 0; i < Math.min(cards.length, 12); i++) {
             var c = cards[i];
             var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;
