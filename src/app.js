@@ -194,19 +194,41 @@
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     if (!card.classList) return;
     
-    // Limpiar clases previas de la tarjeta y de su <li> padre si existe
-    card.classList.remove(CLS.hidden, CLS.dim);
     const parentLi = card.closest && card.closest('li');
+
+    // 1. Limpieza de clases e inline styles previos
+    card.classList.remove(CLS.hidden, CLS.dim);
+    if (card.style && card.style.removeProperty) card.style.removeProperty('display');
     if (parentLi && parentLi.classList) {
       parentLi.classList.remove(CLS.hidden, CLS.dim);
+      if (parentLi.style && parentLi.style.removeProperty) parentLi.style.removeProperty('display');
+    }
+
+    const undesired = isUndesired(data, config);
+
+    // Diagnóstico en consola si ?llfdebug=1 está en la URL
+    if (typeof window !== 'undefined' && window.location && window.location.search && window.location.search.indexOf('llfdebug=1') !== -1) {
+      console.log('[LangJobs Debug]', {
+        jobId: selectors.extractFromCard(card).jobId,
+        title: selectors.extractFromCard(card).title,
+        lang: data.lang,
+        undesired: undesired,
+        mode: config.mode,
+        targetLang: config.targetLang
+      });
     }
 
     if (config.mode === 'label') return;
-    if (isUndesired(data, config)) {
+
+    if (undesired) {
       const cls = (config.mode === 'hide') ? CLS.hidden : CLS.dim;
       card.classList.add(cls);
-      if (config.mode === 'hide' && parentLi && parentLi.classList) {
-        parentLi.classList.add(cls);
+      
+      if (config.mode === 'hide') {
+        // Blindaje inline directo: anula inline styles de LinkedIn con !important
+        if (card.style && card.style.setProperty) card.style.setProperty('display', 'none', 'important');
+        if (parentLi && parentLi.classList) parentLi.classList.add(cls);
+        if (parentLi && parentLi.style && parentLi.style.setProperty) parentLi.style.setProperty('display', 'none', 'important');
       }
     }
   }
