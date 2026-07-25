@@ -250,17 +250,22 @@
     const h = hashOf(card, doc);
     const prevHash = card.getAttribute && card.getAttribute('data-llf-hash');
     const prevLang = card.getAttribute && card.getAttribute('data-llf-lang');
+
+    let data;
     if (!opts.force && prevHash === h && prevLang) {
-      return { skipped: true, lang: prevLang, jobId: (selectors.extractFromCard(card).jobId) };
+      data = { lang: prevLang, jobId: (selectors.extractFromCard(card).jobId) };
+    } else {
+      if (opts.force || prevHash !== h) {
+        if (card.setAttribute) card.setAttribute('data-llf-lang', '');
+      }
+      data = tagCard(card, getDescription, doc, opts);
+      if (data.lang === 'unknown' && (prevLang === 'es' || prevLang === 'en')) {
+        data.lang = prevLang;
+      }
+      if (card.setAttribute) card.setAttribute('data-llf-hash', h);
     }
-    if (opts.force || prevHash !== h) {
-      if (card.setAttribute) card.setAttribute('data-llf-lang', '');
-    }
-    const data = tagCard(card, getDescription, doc, opts);
-    if (data.lang === 'unknown' && (prevLang === 'es' || prevLang === 'en')) {
-      data.lang = prevLang;
-    }
-    if (card.setAttribute) card.setAttribute('data-llf-hash', h);
+
+    // SIEMPRE aplicar la acción (label/dim/hide), incluso si el hash no cambió
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     ensureStyles(document);
     applyAction(card, data, document, opts.config);
