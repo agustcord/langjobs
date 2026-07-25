@@ -95,13 +95,21 @@
 
   // ── Inyecta/actualiza los estilos de acción una sola vez ───────────────────
   function ensureStyles(doc) {
-    if (!doc || !doc.createElement || !doc.head) return;
+    if (!doc || !doc.createElement) return;
     if (doc.getElementById && doc.getElementById(STYLE_ID)) return;
     const style = doc.createElement('style');
     style.id = STYLE_ID;
     style.textContent =
       '.' + CLS.hidden + '{display:none !important;}\n' +
-      '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n';
+      '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
+      // Badge flotante en la esquina superior derecha de cada tarjeta de
+      // vacante. La tarjeta debe ser posicionable (relative) para que el
+      // absolute se ancle a ella, no al viewport.
+      '[data-job-id]{position:relative !important;}\n' +
+      '.llf-badge{position:absolute !important;top:8px;right:8px;z-index:2147483647;' +
+      'display:inline-block;padding:1px 6px;border-radius:4px;' +
+      'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
+      'line-height:1.4;pointer-events:none;}\n';
     (doc.head || doc.documentElement).appendChild(style);
   }
 
@@ -118,32 +126,31 @@
     }
   }
 
-  // ── Etiquetado visual (inserta badge; respeta idempotencia salvo force) ─────
+  // ── Etiquetado visual (inserta badge flotante; respeta idempotencia salvo force) ─
   function tagCard(card, getDescription, doc, opts) {
     opts = opts || {};
     const data = classify(card, getDescription);
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
 
-    if (document && document.createElement) {
-      const ya = card.getAttribute && card.getAttribute('data-llf-lang');
+    if (document && document.createElement && card.setAttribute) {
+      const ya = card.getAttribute('data-llf-lang');
       if (!ya || opts.force) {
-        if (opts.force && card.querySelector) {
-          const prev = card.querySelector('[data-llf-badge]');
+        if (opts.force) {
+          const prev = card.querySelector && card.querySelector('.llf-badge');
           if (prev) { if (prev.remove) prev.remove(); else if (card.removeChild) card.removeChild(prev); }
         }
-        if (!card.querySelector || !card.querySelector('[data-llf-badge]')) {
-          const badge = document.createElement('span');
-          badge.setAttribute('data-llf-badge', '');
+        if (!card.querySelector || !card.querySelector('.llf-badge')) {
           const b = BADGE[data.lang] || BADGE.unknown;
+          const badge = document.createElement('span');
+          badge.className = 'llf-badge';
+          badge.setAttribute('data-llf-badge', '');
           badge.textContent = b.label;
-          badge.style.cssText =
-            'display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;' +
-            'font-size:11px;font-weight:700;color:#fff;background:' + b.color + ';' +
-            'vertical-align:middle;font-family:inherit;';
-          const titleEl = card.querySelector &&
-            (card.querySelector('a.job-card-list__title--link') || card.querySelector('.artdeco-entity-lockup__title'));
-          if (titleEl && titleEl.parentNode && titleEl.parentNode.insertBefore) {
-            titleEl.parentNode.insertBefore(badge, titleEl.nextSibling);
+          badge.style.cssText = 'background:' + b.color + ';';
+          // Insertar al PRINCIPIO de la tarjeta: así queda flotando en la
+          // esquina superior derecha (CSS .llf-badge absolute) sin depender de
+          // dónde esté el título dentro del DOM de LinkedIn.
+          if (card.insertBefore) {
+            card.insertBefore(badge, card.firstChild);
           } else if (card.appendChild) {
             card.appendChild(badge);
           }
