@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.3.1
+// @version      0.3.2
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -919,7 +919,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.3.2 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

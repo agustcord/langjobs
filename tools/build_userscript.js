@@ -16,10 +16,16 @@ const OUT = path.join(ROOT, 'userscript', 'langjobs.user.js');
 
 const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 
+// Versión ÚNICA del userscript: se emite en el header de Tampermonkey y en el
+// panel de debug (?llfdebug=1) para saber QUÉ versión corre realmente en el
+// navegador del usuario (las regresiones "fantasma" eran versiones viejas
+// cacheadas por raw.githubusercontent/Tampermonkey).
+const VERSION = '0.3.2';
+
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.3.1
+// @version      ${VERSION}
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -61,7 +67,7 @@ const FOOTER = `
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v${VERSION} — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
