@@ -37,8 +37,10 @@
 
   // --- Constantes de decisión (tunables en T1.11) ---
   // MIN_HITS: con < este nº de palabras funcionales, no hay señal suficiente
-  //           -> fail-open (no filtrar). Protege títulos cortos (C03/C04).
-  const MIN_HITS = 3;
+  //           -> fail-open (no filtrar). Protege títulos cortos. Bajado de 3 a 2
+  //           en T1.10 para que títulos con 1-2 palabras funcionales (ej. "de",
+  //           "las", "la") clasifiquen ES/EN sin necesitar la descripción.
+  const MIN_HITS = 2;
   // MARGEN: un idioma debe superar al otro por este factor (en proporción de
   // hits) para decidir. > 1 => estricto: empates/cercanos caen en 'unknown'
   // (fail-open, arquitectura 2.2). 1.4 porque el inglés densifica más palabras
@@ -114,7 +116,39 @@
       weightedEn += weightedHit(t, SW.STOPWORDS_EN, SW.EXCLUSIVE_EN);
     }
 
-    // Refuerzo ES por acentos/ñ/¿/¡ (desempate, no primario).
+    // --- Capa 3 (heurística de roles): léxico de palabras típicas de TÍTULOS de
+  // vacante. Los títulos son sustantivos/roles, no oraciones, así que las
+  // stopwords funcionales no alcanzan (MIN_HITS no se cumple). Como respaldo,
+  // listas cortas y exclusivas de roles/acciones ES vs EN. Solo se usan cuando
+  // las stopwords no deciden (fall-open), y solo para inclinar unknown->es/en.
+  // Mantener acotado; se amplía en T1.11 con el corpus de campo.
+  const ROLE_ES = new Set([
+    'analista', 'lider', 'líder', 'ejecutivo', 'comercial', 'contable', 'procesos',
+    'desarrollador', 'programador', 'ingeniero', 'diseñador', 'ventas', 'marketing',
+    'recepcionista', 'operario', 'administrativo', 'contador', 'abogado', 'médico',
+    'enfermero', 'docente', 'profesor', 'auxiliar', 'tecnico', 'técnico', 'gestor',
+    'coordinador', 'supervisor', 'encargado', 'responsable', 'asesor', 'consultor',
+    'especialista', 'representante', 'cajero', 'mozo', 'cadete', 'chofer', 'conduct',
+  ]);
+  const ROLE_EN = new Set([
+    'analyst', 'leader', 'executive', 'commercial', 'accountant', 'process',
+    'developer', 'engineer', 'designer', 'sales', 'marketing', 'receptionist',
+    'operator', 'administrative', 'accountant', 'lawyer', 'doctor', 'nurse',
+    'teacher', 'professor', 'assistant', 'technician', 'manager', 'coordinator',
+    'supervisor', 'officer', 'advisor', 'consultant', 'specialist', 'representative',
+    'cashier', 'waiter', 'driver', 'recruiter',
+  ]);
+
+  function roleHint(tokens) {
+    let es = 0, en = 0;
+    for (const t of tokens) {
+      if (ROLE_ES.has(t)) es++;
+      if (ROLE_EN.has(t)) en++;
+    }
+    if (es > en) return 'es';
+    if (en > es) return 'en';
+    return null;
+  }
     // Cuenta clases distintas presentes (no repeticiones) para no sesgar por
     // longitud; tope 3. Se suma al scoreEs para que un texto ES corto con
     // tildes gane empates cerrados frente a EN (arquitectura 2.2 paso 6).
@@ -132,18 +166,21 @@
     const scoreEn = weightedEn / totalTokens;
 
     // Decisión (arquitectura 2.2 paso 5: por proporción con margen)
-    // 1) Sin suficiente señal funcional -> fail-open (no filtrar)
-    if (hitsEs + hitsEn < MIN_HITS) {
-      return { lang: 'unknown', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
-    }
-    // 2) Un idioma supera al otro por el MARGEN en proporción -> se decide
+    // 1) Un idioma supera al otro por el MARGEN en proporción -> se decide
     if (scoreEs > scoreEn * MARGEN) {
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
     if (scoreEn > scoreEs * MARGEN) {
       return { lang: 'en', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
-    // 3) Empate/cercano -> fail-open (preferimos mostrar de más a ocultar mal)
+    // 2) Stopwords no deciden (pocas/<MIN_HITS o empate) -> capa 3 (roles).
+    //    Los títulos son roles/sustantivos, no oraciones, así que esta capa
+    //    es la que resuelve la mayoría de los títulos cortos.
+    const hint = roleHint(tokens);
+    if (hint === 'es' || hint === 'en') {
+      return { lang: hint, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
+    }
+    // 3) Sin señal suficiente -> fail-open (preferimos mostrar de más a ocultar mal)
     return { lang: 'unknown', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
   }
 

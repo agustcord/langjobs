@@ -19,7 +19,7 @@ const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.3
+// @version      0.2.6
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -65,10 +65,16 @@ const FOOTER = `
           for (var i = 0; i < Math.min(cards.length, 12); i++) {
             var c = cards[i];
             var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;
-            var title = d ? (d.title || '').slice(0, 28) : '(sin extract)';
+            var title = d ? (d.title || '').slice(0, 30) : '(sin extract)';
             var jobId = c.getAttribute('data-job-id') || '(vacio)';
             var badge = c.querySelector ? (c.querySelector('.llf-badge') ? 'BADGE' : '-') : '?';
-            lines.push((i + 1) + '. jobId=' + jobId + ' badge=' + badge + ' tit=' + JSON.stringify(title));
+            var lang = '?';
+            var src = '?';
+            try {
+              var r = LangJobsApp.classify(c, LangJobsApp.makeGetDescription(document));
+              lang = r.lang; src = r.langSource;
+            } catch (e2) { lang = 'ERR'; }
+            lines.push((i + 1) + '. jobId=' + jobId + ' badge=' + badge + ' lang=' + lang + '(' + src + ') tit=' + JSON.stringify(title));
           }
           var box = document.createElement('div');
           box.setAttribute('data-llf-debug', '');

@@ -31,14 +31,23 @@
   // ── Helpers de capa ──────────────────────────────────────────────────────
 
   // Capa semántica: aria-label del <a> de título (más fiable que el texto).
+  // En el DOM real de LinkedIn el título puede estar como textContent directo
+  // del <a>, dentro de un <strong>, o como aria-label (solo la tarjeta activa).
+  // Por eso leemos textContent como respaldo principal, no solo <strong>.
   function titleFromCard(card) {
-    const link = card.querySelector && card.querySelector('a.job-card-list__title--link');
+    let link = card.querySelector && card.querySelector('a.job-card-list__title--link');
+    if (!link) link = card.querySelector && card.querySelector('a[aria-label]');
     if (link) {
       const aria = link.getAttribute && link.getAttribute('aria-label');
       if (aria && aria.trim()) return aria.trim();
-      // fallback al texto fuerte
-      const strong = link.querySelector && link.querySelector('strong');
-      if (strong && strong.textContent) return strong.textContent.trim();
+      const t = (link.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) return t;
+    }
+    // Respaldo: primer <a> con texto dentro de la tarjeta.
+    const anyA = card.querySelector && card.querySelector('a');
+    if (anyA) {
+      const t = (anyA.textContent || '').replace(/\s+/g, ' ').trim();
+      if (t) return t;
     }
     return '';
   }

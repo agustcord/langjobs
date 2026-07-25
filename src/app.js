@@ -72,16 +72,29 @@
   }
 
   // ── Clasificación pura (sin tocar el DOM) ──────────────────────────────────
+  // Opción C (T1.10): siempre usa título + empresa + ubicación (señal disponible
+  // en TODAS las tarjetas sin clickear). Si la tarjeta está ACTIVA y hay
+  // descripción de panel, esa señal se SUMA (es más fiable) para resolver
+  // ambiguos. Así la mayoría clasifica ES/EN de inmediato; las pocas ambiguas
+  // se resuelven al abrir la vacante.
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
+    // Texto base disponible siempre: título + empresa + ubicación.
+    let base = (data.title || '') + ' ' + (data.company || '') + ' ' + (data.location || '');
+    data.langSource = 'title';
+    data.lang = detector.detectLanguage(base).lang;
+    // Si está activa y hay descripción, usarla (más fiable) para resolver.
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
-      data.description = selectors.cleanText(desc);
-      data.lang = detector.detectLanguage(data.description).lang;
-      data.langSource = 'description';
-    } else {
-      data.lang = detector.detectLanguage(data.title + ' ' + data.company).lang;
-      data.langSource = 'title';
+      if (desc && desc.trim()) {
+        const descLang = detector.detectLanguage(desc).lang;
+        // La descripción solo mejora si da un idioma concreto (no unknown).
+        if (descLang === 'es' || descLang === 'en') {
+          data.description = selectors.cleanText(desc);
+          data.lang = descLang;
+          data.langSource = 'description';
+        }
+      }
     }
     return data;
   }
