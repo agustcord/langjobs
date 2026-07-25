@@ -160,20 +160,12 @@
   }
 
   // Helper para verificar si un nodo es realmente una tarjeta de la lista izquierda
-  // (ignora botones de 'Solicitud sencilla' o elementos dentro del panel de detalle derecho).
+  // (ignora botones de 'Solicitud sencilla' del panel derecho).
   function isJobCard(node) {
     if (!node || !node.tagName) return false;
     const tag = node.tagName.toUpperCase();
-    // Jamás etiquetar un botón ni enlaces de solicitud
     if (tag === 'BUTTON' || (node.classList && node.classList.contains('jobs-apply-button'))) return false;
-    if (node.closest && (
-      node.closest('.jobs-apply-button') ||
-      node.closest('.jobs-unified-top-card') ||
-      node.closest('.jobs-details__main-content') ||
-      node.closest('.jobs-details__top-card')
-    )) {
-      return false;
-    }
+    if (node.closest && (node.closest('.jobs-apply-button') || node.closest('.jobs-unified-top-card__content'))) return false;
     return true;
   }
 
@@ -187,8 +179,9 @@
       '.' + CLS.hidden + '{display:none !important;}\n' +
       '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
       '[data-job-id]{position:relative !important;}\n' +
-      // Posición top:34px para NO tapar el botón nativo de descartar/ocultar de LinkedIn (top:8px)
-      '.llf-badge{position:absolute !important;top:34px !important;right:12px !important;z-index:2147483647;' +
+      // Posición top:8px, right:40px: queda a la IZQUIERDA del botón nativo de descartar (right:8px)
+      // sin taparlo jamás y con 100% de visibilidad garantizada.
+      '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
       'display:inline-block;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
       'line-height:1.4;pointer-events:none;}\n';
