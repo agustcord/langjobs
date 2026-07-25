@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.4.2
+// @version      0.4.3
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -303,6 +303,13 @@
     const scoreEn = weightedEn / totalTokens;
 
     const hint = roleHint(tokens);
+
+    // Regla de Oro de Diacríticos y Roles en Español (v0.4.3):
+    // Si el texto contiene tildes/ñ (ej: "Líder", "Selección") o un rol en español (ej: "Lider", "Jefe", "Soporte")
+    // y la señal de stopwords de inglés es débil (hitsEn <= 1, ej. la sigla "IT"), es 100% ESPAÑOL.
+    if ((accentHits >= 1 || hint === 'es') && hitsEn <= 1) {
+      return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
+    }
 
     // Heurística de modalidad (v0.4.0 - Opción B):
     // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
@@ -980,7 +987,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG v0.4.2 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.4.3 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

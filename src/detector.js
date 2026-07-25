@@ -113,6 +113,13 @@
 
     const hint = roleHint(tokens);
 
+    // Regla de Oro de Diacríticos y Roles en Español (v0.4.3):
+    // Si el texto contiene tildes/ñ (ej: "Líder", "Selección") o un rol en español (ej: "Lider", "Jefe", "Soporte")
+    // y la señal de stopwords de inglés es débil (hitsEn <= 1, ej. la sigla "IT"), es 100% ESPAÑOL.
+    if ((accentHits >= 1 || hint === 'es') && hitsEn <= 1) {
+      return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
+    }
+
     // Heurística de modalidad (v0.4.0 - Opción B):
     // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
     // sin stopwords en español, marcar como ambiguo (isAmbiguous: true, lang: 'unknown')
