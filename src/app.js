@@ -177,10 +177,9 @@
     const style = doc.createElement('style');
     style.id = STYLE_ID;
     style.textContent =
-      '.' + CLS.hidden + '{display:none !important;}\n' +
+      '.' + CLS.hidden + '{display:none !important;height:0 !important;margin:0 !important;padding:0 !important;overflow:hidden !important;}\n' +
       '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
       '[data-job-id]{position:relative !important;}\n' +
-      // Posición top:8px, right:40px: queda a la IZQUIERDA del botón nativo de descartar (right:8px)
       '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
       'display:inline-block;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
@@ -194,10 +193,21 @@
     config = config || CONFIG;
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     if (!card.classList) return;
+    
+    // Limpiar clases previas de la tarjeta y de su <li> padre si existe
     card.classList.remove(CLS.hidden, CLS.dim);
+    const parentLi = card.closest && card.closest('li');
+    if (parentLi && parentLi.classList) {
+      parentLi.classList.remove(CLS.hidden, CLS.dim);
+    }
+
     if (config.mode === 'label') return;
     if (isUndesired(data, config)) {
-      card.classList.add(config.mode === 'hide' ? CLS.hidden : CLS.dim);
+      const cls = (config.mode === 'hide') ? CLS.hidden : CLS.dim;
+      card.classList.add(cls);
+      if (config.mode === 'hide' && parentLi && parentLi.classList) {
+        parentLi.classList.add(cls);
+      }
     }
   }
 
