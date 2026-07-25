@@ -448,6 +448,24 @@
     };
   }
 
+  // ID de la tarjeta activa en la lista (la que muestra el panel de detalle).
+  // Capa semántica: aria-current="page" (de 04_Selectores_DOM.md).
+  function getActiveJobId(root) {
+    if (!root || !root.querySelector) return null;
+    const active = root.querySelector('[aria-current="page"]');
+    return active && active.getAttribute ? active.getAttribute('data-job-id') : null;
+  }
+
+  // Texto del panel de detalle (columna derecha) para la vacante activa.
+  // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
+  function getDetailDescription(root) {
+    if (!root || !root.querySelector) return '';
+    let detailRoot = root.querySelector('.jobs-details__main-content') ||
+                     root.querySelector('.jobs-details') ||
+                     root.querySelector('main');
+    return descriptionFromDetail(detailRoot || root);
+  }
+
   // Detecta idioma de un texto (usa el detector puro).
   function detect(text) {
     return detectLanguage(text);
@@ -495,6 +513,8 @@
   return {
     extractFromCard: extractFromCard,
     descriptionFromDetail: descriptionFromDetail,
+    getActiveJobId: getActiveJobId,
+    getDetailDescription: getDetailDescription,
     scanJobs: scanJobs,
     detect: detect,
     cleanText: cleanText,
@@ -546,9 +566,34 @@
   const STYLE_ID = 'llf-styles';
 
   // ── Hash de contenido de una tarjeta (para detectar nodos reciclados) ──────
-  function hashOf(card) {
+  // LinkedIn recicla los mismos nodos del DOM al hacer scroll: el jobId cambia
+  // pero el nodo persiste. El hash (jobId|título|empresa) permite re-procesar
+  // solo cuando el contenido REAL cambió. En T1.9: si la tarjeta es la ACTIVA
+  // y el panel de detalle tiene texto, se incluye una marca del panel para que
+  // el retro-etiquetado (re-clasificar por descripción) cambie el hash y se
+  // re-procese al abrir la vacante.
+  function hashOf(card, doc) {
     const d = selectors.extractFromCard(card);
-    return (d.jobId || '') + '|' + (d.title || '').slice(0, 60) + '|' + (d.company || '').slice(0, 60);
+    let h = (d.jobId || '') + '|' + (d.title || '').slice(0, 60) + '|' + (d.company || '').slice(0, 60);
+    const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+    if (document && selectors.getActiveJobId && selectors.getActiveJobId(document) === d.jobId) {
+      const desc = selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
+      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
+    }
+    return h;
+  }
+
+  // ── getDescription para el panel de detalle (T1.9) ─────────────────────────
+  // Devuelve la descripción del panel SOLO si la tarjeta es la activa; si no,
+  // string vacío (el classify cae a título+empresa). Así el retro-etiquetado
+  // usa el texto completo y confiable de la vacante abierta.
+  function makeGetDescription(doc) {
+    return function (jobId, card) {
+      const document = doc || (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      if (!document || !selectors.getActiveJobId) return '';
+      if (selectors.getActiveJobId(document) !== jobId) return '';
+      return selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
+    };
   }
 
   // ── Clasificación pura (sin tocar el DOM) ──────────────────────────────────
@@ -634,10 +679,10 @@
     return data;
   }
 
-  // ── Procesar una tarjeta con guarda de hash + acción (T1.7 + T1.8) ──────────
+  // ── Procesar una tarjeta con guarda de hash + acción (T1.7 + T1.8 + T1.9) ───
   function processCard(card, getDescription, doc, opts) {
     opts = opts || {};
-    const h = hashOf(card);
+    const h = hashOf(card, doc);
     const prevHash = card.getAttribute && card.getAttribute('data-llf-hash');
     const prevLang = card.getAttribute && card.getAttribute('data-llf-lang');
     if (!opts.force && prevHash === h && prevLang) {
@@ -647,6 +692,12 @@
       if (card.setAttribute) card.setAttribute('data-llf-lang', '');
     }
     const data = tagCard(card, getDescription, doc, opts);
+    // T1.9: no degradar. Si la descripción del panel ya nos dio un idioma
+    // confiable (es/en) y ahora la tarjeta se re-procesa sin panel (ej. al
+    // clickear otra vacante) dando 'unknown', mantenemos el lenguaje conocido.
+    if (data.lang === 'unknown' && (prevLang === 'es' || prevLang === 'en')) {
+      data.lang = prevLang;
+    }
     if (card.setAttribute) card.setAttribute('data-llf-hash', h);
     // Acción según modo (T1.8): label/dim/hide.
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
@@ -673,9 +724,17 @@
       if (partial.targetLang) CONFIG.targetLang = partial.targetLang;
       if (partial.mode) CONFIG.mode = partial.mode;
     }
-    // Reprocesar forzado para aplicar el nuevo modo.
+    // Reprocesar forzado para aplicar el nuevo modo (T1.9: con getDescription
+    // del panel de detalle activo, si lo hay).
     const root = doc || (typeof document !== 'undefined' ? document : null);
-    if (root) processAll(root, Object.assign({}, opts, { force: true, config: CONFIG }));
+    if (root) {
+      const fullOpts = Object.assign({}, opts, {
+        force: true,
+        config: CONFIG,
+        getDescription: opts.getDescription || makeGetDescription(root),
+      });
+      processAll(root, fullOpts);
+    }
     return Object.assign({}, CONFIG);
   }
 
@@ -684,7 +743,7 @@
     return processAll(doc || (typeof document !== 'undefined' ? document : null), opts);
   }
 
-  // ── MutationObserver con debounce (T1.7) ────────────────────────────────────
+  // ── MutationObserver con debounce (T1.7) + retro-etiquetado (T1.9) ──────────
   function observe(doc, opts) {
     opts = opts || {};
     const root = doc || (typeof document !== 'undefined' ? document : null);
@@ -694,6 +753,9 @@
     if (typeof MO !== 'function') return null;
 
     opts.config = opts.config || CONFIG;
+    // T1.9: al cambiar el panel de detalle (clickear otra vacante), el
+    // getDescription lee la descripción de la tarjeta activa para re-clasificar.
+    opts.getDescription = opts.getDescription || makeGetDescription(root);
     const debounceMs = (opts.debounceMs != null) ? opts.debounceMs : 150;
     let timer = null;
 
@@ -739,6 +801,7 @@
     setConfig: setConfig,
     classify: classify,
     hashOf: hashOf,
+    makeGetDescription: makeGetDescription,
     CONFIG: CONFIG,
     BADGE: BADGE,
     CLS: CLS,

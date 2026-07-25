@@ -105,6 +105,24 @@
     };
   }
 
+  // ID de la tarjeta activa en la lista (la que muestra el panel de detalle).
+  // Capa semántica: aria-current="page" (de 04_Selectores_DOM.md).
+  function getActiveJobId(root) {
+    if (!root || !root.querySelector) return null;
+    const active = root.querySelector('[aria-current="page"]');
+    return active && active.getAttribute ? active.getAttribute('data-job-id') : null;
+  }
+
+  // Texto del panel de detalle (columna derecha) para la vacante activa.
+  // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
+  function getDetailDescription(root) {
+    if (!root || !root.querySelector) return '';
+    let detailRoot = root.querySelector('.jobs-details__main-content') ||
+                     root.querySelector('.jobs-details') ||
+                     root.querySelector('main');
+    return descriptionFromDetail(detailRoot || root);
+  }
+
   // Detecta idioma de un texto (usa el detector puro).
   function detect(text) {
     return detectLanguage(text);
@@ -152,6 +170,8 @@
   return {
     extractFromCard: extractFromCard,
     descriptionFromDetail: descriptionFromDetail,
+    getActiveJobId: getActiveJobId,
+    getDetailDescription: getDetailDescription,
     scanJobs: scanJobs,
     detect: detect,
     cleanText: cleanText,
