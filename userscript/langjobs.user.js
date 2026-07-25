@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.3.0
+// @version      0.3.1
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -931,17 +931,25 @@
           }
           for (var i = 0; i < Math.min(cards.length, 12); i++) {
             var c = cards[i];
-            var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;
-            var title = d ? (d.title || '').slice(0, 30) : '(sin extract)';
-            var jobId = c.getAttribute('data-job-id') || '(vacio)';
-            var badge = c.querySelector ? (c.querySelector('.llf-badge') ? 'BADGE' : '-') : '?';
-            var lang = '?';
-            var src = '?';
+            // Blindado por tarjeta: una tarjeta rota NO debe matar el panel
+            // (es justo el caso en que más se lo necesita).
+            var line;
             try {
-              var r = LangJobsApp.classify(c, LangJobsApp.makeGetDescription(document));
-              lang = r.lang; src = r.langSource;
-            } catch (e2) { lang = 'ERR'; }
-            lines.push((i + 1) + '. jobId=' + jobId + ' badge=' + badge + ' lang=' + lang + '(' + src + ') tit=' + JSON.stringify(title));
+              var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;
+              var title = d ? (d.title || '').slice(0, 30) : '(sin extract)';
+              var jobId = c.getAttribute('data-job-id') || '(vacio)';
+              var badge = c.querySelector ? (c.querySelector('.llf-badge') ? 'BADGE' : '-') : '?';
+              var lang = '?';
+              var src = '?';
+              try {
+                var r = LangJobsApp.classify(c, LangJobsApp.makeGetDescription(document));
+                lang = r.lang; src = r.langSource;
+              } catch (e2) { lang = 'ERR'; }
+              line = (i + 1) + '. jobId=' + jobId + ' badge=' + badge + ' lang=' + lang + '(' + src + ') tit=' + JSON.stringify(title);
+            } catch (e3) {
+              line = (i + 1) + '. ERROR: ' + (e3 && e3.message ? e3.message : String(e3));
+            }
+            lines.push(line);
           }
           var box = document.createElement('div');
           box.setAttribute('data-llf-debug', '');
