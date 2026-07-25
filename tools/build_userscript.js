@@ -39,12 +39,17 @@ const FOOTER = `
   // ── Bootstrap del userscript (solo en navegador) ─────────────────────────
   function boot() {
     if (typeof LangJobsApp === 'undefined') return;
-    // T1.6: modo "solo etiquetar" (sin ocultar). El filtrado llega en T1.8.
+    // ── Configuración editable (T1.8) ──────────────────────────────────────
+    // targetLang: idioma que se MANTIENE visible ('es' | 'en').
+    // mode: 'label' (solo badge) | 'dim' (atenuar no deseados) | 'hide' (ocultar).
+    // Fail-open: las vacantes 'unknown' NUNCA se ocultan/atenuan.
+    var CONFIG = { targetLang: 'es', mode: 'label' };
+    if (LangJobsApp.setConfig) LangJobsApp.setConfig(CONFIG);
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
     if (LangJobsApp.observe) {
-      LangJobsApp.observe(document, { debounceMs: 150 });
+      LangJobsApp.observe(document, { debounceMs: 150, config: CONFIG });
     } else {
-      LangJobsApp.run(document, {});
+      LangJobsApp.run(document, { config: CONFIG });
     }
   }
 
