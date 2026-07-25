@@ -44,6 +44,7 @@
     'supervisor', 'officer', 'advisor', 'consultant', 'specialist', 'representative',
     'cashier', 'waiter', 'driver', 'recruiter',
     'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
+    'editor', 'designer', 'motion', 'video', 'product',
   ]);
 
   function roleHint(tokens) {

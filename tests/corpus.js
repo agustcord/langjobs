@@ -184,6 +184,15 @@ const CORPUS = [
     resultado: null,
     nota: 'Puesto Presencial local con título en inglés -> estado inicial fail-open (unknown/??) hasta resolución de fetch silencioso.',
   },
+  {
+    id: 'X16',
+    texto: 'Senior Video Editor - Motion Designer Fever',
+    opts: { modality: 'hibrido' },
+    acepta: ['en', 'unknown'],
+    crítico: true,
+    resultado: null,
+    nota: 'Caso Fever: Puesto híbrido con título creativo en inglés. Inicia ?? y el fetch silencioso lo resuelve a EN.',
+  },
 ];
 
 if (typeof module === 'object' && module.exports) {
