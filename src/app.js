@@ -160,16 +160,17 @@
   }
 
   // Helper para verificar si un nodo es realmente una tarjeta de la lista izquierda
-  // (ignora botones de 'Solicitud sencilla' o elementos dentro del panel de detalle).
+  // (ignora botones de 'Solicitud sencilla' o elementos dentro del panel de detalle derecho).
   function isJobCard(node) {
     if (!node || !node.tagName) return false;
     const tag = node.tagName.toUpperCase();
-    if (tag === 'BUTTON' || (tag === 'A' && node.classList && node.classList.contains('jobs-apply-button'))) return false;
+    // Jamás etiquetar un botón ni enlaces de solicitud
+    if (tag === 'BUTTON' || (node.classList && node.classList.contains('jobs-apply-button'))) return false;
     if (node.closest && (
-      node.closest('.jobs-details') ||
+      node.closest('.jobs-apply-button') ||
       node.closest('.jobs-unified-top-card') ||
-      node.closest('.jobs-search-two-pane__details') ||
-      node.closest('.job-details-jobs-in-bugs-content')
+      node.closest('.jobs-details__main-content') ||
+      node.closest('.jobs-details__top-card')
     )) {
       return false;
     }

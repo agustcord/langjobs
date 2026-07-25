@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.4.5
+// @version      0.4.6
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -750,16 +750,17 @@
   }
 
   // Helper para verificar si un nodo es realmente una tarjeta de la lista izquierda
-  // (ignora botones de 'Solicitud sencilla' o elementos dentro del panel de detalle).
+  // (ignora botones de 'Solicitud sencilla' o elementos dentro del panel de detalle derecho).
   function isJobCard(node) {
     if (!node || !node.tagName) return false;
     const tag = node.tagName.toUpperCase();
-    if (tag === 'BUTTON' || (tag === 'A' && node.classList && node.classList.contains('jobs-apply-button'))) return false;
+    // Jamás etiquetar un botón ni enlaces de solicitud
+    if (tag === 'BUTTON' || (node.classList && node.classList.contains('jobs-apply-button'))) return false;
     if (node.closest && (
-      node.closest('.jobs-details') ||
+      node.closest('.jobs-apply-button') ||
       node.closest('.jobs-unified-top-card') ||
-      node.closest('.jobs-search-two-pane__details') ||
-      node.closest('.job-details-jobs-in-bugs-content')
+      node.closest('.jobs-details__main-content') ||
+      node.closest('.jobs-details__top-card')
     )) {
       return false;
     }
@@ -995,7 +996,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG v0.4.5 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.4.6 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
