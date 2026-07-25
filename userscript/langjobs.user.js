@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.7
+// @version      0.2.8
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -647,17 +647,22 @@
   }
 
   // ── Clasificación pura (sin tocar el DOM) ──────────────────────────────────
-  // Opción C (T1.10): siempre usa título + empresa + ubicación (señal disponible
-  // en TODAS las tarjetas sin clickear). Si la tarjeta está ACTIVA y hay
-  // descripción de panel, esa señal se SUMA (es más fiable) para resolver
-  // ambiguos. Así la mayoría clasifica ES/EN de inmediato; las pocas ambiguas
-  // se resuelven al abrir la vacante.
+  // Opción C (T1.10): la señal siempre-disponible es título + empresa. La
+  // UBICACIÓN se excluye de la decisión principal porque sesga a ES en búsquedas
+  // argentinas ("Rosario, Santa Fe, Argentina" aporta stopwords ES que superan el
+  // MARGEN y tapalan el rol EN del título). Solo se usa como último recurso si
+  // título+empresa da unknown. Si la tarjeta está ACTIVA y hay descripción de
+  // panel, esa señal (más fiable) resuelve ambiguos.
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
-    // Texto base disponible siempre: título + empresa + ubicación.
-    let base = (data.title || '') + ' ' + (data.company || '') + ' ' + (data.location || '');
+    // Decisión principal: título + empresa (sin ubicación).
     data.langSource = 'title';
-    data.lang = detector.detectLanguage(base).lang;
+    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || '')).lang;
+    // Recurso: si sigue ambiguo, sumar la ubicación.
+    if (data.lang === 'unknown' && data.location) {
+      data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || '') + ' ' + data.location).lang;
+      data.langSource = 'title+location';
+    }
     // Si está activa y hay descripción, usarla (más fiable) para resolver.
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
