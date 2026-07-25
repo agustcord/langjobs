@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.4.0
+// @version      0.4.1
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -234,7 +234,7 @@
     'teacher', 'professor', 'assistant', 'technician', 'manager', 'coordinator',
     'supervisor', 'officer', 'advisor', 'consultant', 'specialist', 'representative',
     'cashier', 'waiter', 'driver', 'recruiter',
-    'lead', 'tech', 'writer', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
+    'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
   ]);
 
   function roleHint(tokens) {
@@ -715,7 +715,7 @@
     const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
     data.lang = detRes.lang;
 
-    if (detRes.isAmbiguous && data.jobId) {
+    if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
       const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
       fetchJobDetail(data.jobId, card, document);
     }
@@ -979,7 +979,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG v0.4.0 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.4.1 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

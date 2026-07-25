@@ -43,7 +43,7 @@
     'teacher', 'professor', 'assistant', 'technician', 'manager', 'coordinator',
     'supervisor', 'officer', 'advisor', 'consultant', 'specialist', 'representative',
     'cashier', 'waiter', 'driver', 'recruiter',
-    'lead', 'tech', 'writer', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
+    'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
   ]);
 
   function roleHint(tokens) {

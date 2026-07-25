@@ -133,7 +133,7 @@
     const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
     data.lang = detRes.lang;
 
-    if (detRes.isAmbiguous && data.jobId) {
+    if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
       const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
       fetchJobDetail(data.jobId, card, document);
     }
