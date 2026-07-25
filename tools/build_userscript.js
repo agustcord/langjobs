@@ -19,7 +19,7 @@ const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.2.2
+// @version      0.2.3
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -53,6 +53,31 @@ const FOOTER = `
     } else {
       LangJobsApp.run(document, { config: CONFIG });
     }
+    // ── Diagnóstico visible (T1.10-debug): activar con ?llfdebug=1 en la URL.
+    // No usa consola (el usuario tiene la consola rota por otra extensión).
+    try {
+      var dbg = (location.search || '').indexOf('llfdebug=1') >= 0;
+      if (dbg && LangJobsApp.extract) {
+        setTimeout(function () {
+          var cards = document.querySelectorAll('[data-job-id]');
+          var lines = [];
+          lines.push('LangJobs DEBUG — tarjetas=' + cards.length);
+          for (var i = 0; i < Math.min(cards.length, 12); i++) {
+            var c = cards[i];
+            var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;
+            var title = d ? (d.title || '').slice(0, 28) : '(sin extract)';
+            var jobId = c.getAttribute('data-job-id') || '(vacio)';
+            var badge = c.querySelector ? (c.querySelector('.llf-badge') ? 'BADGE' : '-') : '?';
+            lines.push((i + 1) + '. jobId=' + jobId + ' badge=' + badge + ' tit=' + JSON.stringify(title));
+          }
+          var box = document.createElement('div');
+          box.setAttribute('data-llf-debug', '');
+          box.style.cssText = 'position:fixed;left:0;bottom:0;max-width:100%;max-height:40%;overflow:auto;background:#000;color:#0f0;font:11px monospace;padding:6px;z-index:2147483647;white-space:pre-wrap;';
+          box.textContent = lines.join('\\n');
+          document.body.appendChild(box);
+        }, 1500);
+      }
+    } catch (e) { /* no romper el script por el debug */ }
   }
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {

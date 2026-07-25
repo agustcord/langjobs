@@ -285,6 +285,7 @@
     isUndesired: isUndesired,
     setConfig: setConfig,
     classify: classify,
+    extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
     CONFIG: CONFIG,
