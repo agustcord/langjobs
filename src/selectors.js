@@ -207,9 +207,21 @@
     return out;
   }
 
+  function extractDescriptionFromHTML(htmlString) {
+    if (!htmlString || typeof htmlString !== 'string') return '';
+    let match = htmlString.match(/<div[^>]*class="[^"]*mt4[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                htmlString.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+    let rawText = match ? match[1] : htmlString;
+    let cleaned = rawText.replace(/<[^>]+>/g, ' ');
+    return cleanText(cleaned);
+  }
+
   return {
     extractFromCard: extractFromCard,
     descriptionFromDetail: descriptionFromDetail,
+    extractDescriptionFromHTML: extractDescriptionFromHTML,
     getActiveJobId: getActiveJobId,
     getDetailDescription: getDetailDescription,
     scanJobs: scanJobs,

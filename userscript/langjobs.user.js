@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.3.6
+// @version      0.4.0
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -303,9 +303,17 @@
 
     const hint = roleHint(tokens);
 
-    // Heurística de modalidad (v0.3.6): si el puesto requiere presencia física
-    // local (híbrido / presencial) y la señal de palabras funcionales de inglés es débil
-    // (hitsEn <= 1), la vacante se clasifica como mercado local en español (ej. "Manager In Training", "Sales Representative").
+    // Heurística de modalidad (v0.4.0 - Opción B):
+    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
+    // sin stopwords en español, marcar como ambiguo (isAmbiguous: true, lang: 'unknown')
+    // para desencadenar el fetch silencioso en segundo plano y resolver a 100% con la descripción completa.
+    const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
+                        hint === 'en' && hitsEs === 0 && accentHits === 0;
+
+    if (isAmbiguous) {
+      return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
+    }
+
     if ((opts.modality === 'hibrido' || opts.modality === 'presencial') && hitsEn <= 1) {
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
@@ -547,9 +555,21 @@
     return out;
   }
 
+  function extractDescriptionFromHTML(htmlString) {
+    if (!htmlString || typeof htmlString !== 'string') return '';
+    let match = htmlString.match(/<div[^>]*class="[^"]*mt4[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
+                htmlString.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+    let rawText = match ? match[1] : htmlString;
+    let cleaned = rawText.replace(/<[^>]+>/g, ' ');
+    return cleanText(cleaned);
+  }
+
   return {
     extractFromCard: extractFromCard,
     descriptionFromDetail: descriptionFromDetail,
+    extractDescriptionFromHTML: extractDescriptionFromHTML,
     getActiveJobId: getActiveJobId,
     getDetailDescription: getDetailDescription,
     scanJobs: scanJobs,
@@ -641,12 +661,65 @@
   // es aceptable para el feed de Rosario (la mayoría ES); el caso Tech Lead EN se
   // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
+  // ── Opción B (v0.4.0): Caché en memoria + Fetcher Asíncrono Silencioso ─────
+  const FETCH_CACHE = {}; // jobId -> lang
+  const FETCH_PENDING = {};
+  let activeFetches = 0;
+  const MAX_CONCURRENT = 3;
+
+  function fetchJobDetail(jobId, card, doc) {
+    if (!jobId || FETCH_CACHE[jobId] || FETCH_PENDING[jobId]) return;
+    if (activeFetches >= MAX_CONCURRENT) return;
+
+    FETCH_PENDING[jobId] = true;
+    activeFetches++;
+
+    const url = '/jobs/view/' + jobId + '/';
+    if (typeof fetch === 'function') {
+      fetch(url, { headers: { 'Accept': 'text/html' }, credentials: 'same-origin' })
+        .then(function (res) { return res.text(); })
+        .then(function (html) {
+          delete FETCH_PENDING[jobId];
+          activeFetches = Math.max(0, activeFetches - 1);
+          const desc = selectors.extractDescriptionFromHTML ? selectors.extractDescriptionFromHTML(html) : '';
+          if (desc && desc.trim()) {
+            const lang = detector.detectLanguage(desc).lang;
+            if (lang === 'es' || lang === 'en') {
+              FETCH_CACHE[jobId] = lang;
+              tagCard(card, function () { return desc; }, doc, { force: true });
+              const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+              applyAction(card, { lang: lang }, document);
+            }
+          }
+        })
+        .catch(function () {
+          delete FETCH_PENDING[jobId];
+          activeFetches = Math.max(0, activeFetches - 1);
+        });
+    } else {
+      delete FETCH_PENDING[jobId];
+      activeFetches = Math.max(0, activeFetches - 1);
+    }
+  }
+
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
-    // Texto base disponible siempre: título + empresa (pasamos modalidad para la heurística Híbrido/Presencial).
     data.langSource = 'title';
-    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality }).lang;
-    // Si está activa y hay descripción, usarla (más fiable) para resolver.
+
+    if (data.jobId && FETCH_CACHE[data.jobId]) {
+      data.lang = FETCH_CACHE[data.jobId];
+      data.langSource = 'async-fetch';
+      return data;
+    }
+
+    const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
+    data.lang = detRes.lang;
+
+    if (detRes.isAmbiguous && data.jobId) {
+      const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      fetchJobDetail(data.jobId, card, document);
+    }
+
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
       if (desc && desc.trim()) {
@@ -906,7 +979,7 @@
         setTimeout(function () {
           var cards = document.querySelectorAll('[data-job-id]');
           var lines = [];
-          lines.push('LangJobs DEBUG v0.3.6 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.4.0 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

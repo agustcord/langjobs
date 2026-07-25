@@ -161,10 +161,10 @@ const CORPUS = [
     id: 'X13',
     texto: 'DevOps Engineer Wiener lab.',
     opts: { modality: 'hibrido' },
-    acepta: ['es'],
+    acepta: ['es', 'unknown'],
     crítico: true,
     resultado: null,
-    nota: 'Puesto Híbrido en Rosario con título IT en inglés. La heurística de modalidad local debe dar ES.',
+    nota: 'Puesto Híbrido en Rosario con título IT en inglés. Estado inicial fail-open (unknown/??) hasta que resuelva el fetch silencioso.',
   },
   {
     id: 'X14',
@@ -179,10 +179,10 @@ const CORPUS = [
     id: 'X15',
     texto: 'QA Automation Engineer',
     opts: { modality: 'presencial' },
-    acepta: ['es'],
+    acepta: ['es', 'unknown'],
     crítico: true,
     resultado: null,
-    nota: 'Puesto Presencial local con título en inglés -> heurística de modalidad local da ES.',
+    nota: 'Puesto Presencial local con título en inglés -> estado inicial fail-open (unknown/??) hasta resolución de fetch silencioso.',
   },
 ];
 

@@ -79,12 +79,65 @@
   // es aceptable para el feed de Rosario (la mayoría ES); el caso Tech Lead EN se
   // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
+  // ── Opción B (v0.4.0): Caché en memoria + Fetcher Asíncrono Silencioso ─────
+  const FETCH_CACHE = {}; // jobId -> lang
+  const FETCH_PENDING = {};
+  let activeFetches = 0;
+  const MAX_CONCURRENT = 3;
+
+  function fetchJobDetail(jobId, card, doc) {
+    if (!jobId || FETCH_CACHE[jobId] || FETCH_PENDING[jobId]) return;
+    if (activeFetches >= MAX_CONCURRENT) return;
+
+    FETCH_PENDING[jobId] = true;
+    activeFetches++;
+
+    const url = '/jobs/view/' + jobId + '/';
+    if (typeof fetch === 'function') {
+      fetch(url, { headers: { 'Accept': 'text/html' }, credentials: 'same-origin' })
+        .then(function (res) { return res.text(); })
+        .then(function (html) {
+          delete FETCH_PENDING[jobId];
+          activeFetches = Math.max(0, activeFetches - 1);
+          const desc = selectors.extractDescriptionFromHTML ? selectors.extractDescriptionFromHTML(html) : '';
+          if (desc && desc.trim()) {
+            const lang = detector.detectLanguage(desc).lang;
+            if (lang === 'es' || lang === 'en') {
+              FETCH_CACHE[jobId] = lang;
+              tagCard(card, function () { return desc; }, doc, { force: true });
+              const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+              applyAction(card, { lang: lang }, document);
+            }
+          }
+        })
+        .catch(function () {
+          delete FETCH_PENDING[jobId];
+          activeFetches = Math.max(0, activeFetches - 1);
+        });
+    } else {
+      delete FETCH_PENDING[jobId];
+      activeFetches = Math.max(0, activeFetches - 1);
+    }
+  }
+
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
-    // Texto base disponible siempre: título + empresa (pasamos modalidad para la heurística Híbrido/Presencial).
     data.langSource = 'title';
-    data.lang = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality }).lang;
-    // Si está activa y hay descripción, usarla (más fiable) para resolver.
+
+    if (data.jobId && FETCH_CACHE[data.jobId]) {
+      data.lang = FETCH_CACHE[data.jobId];
+      data.langSource = 'async-fetch';
+      return data;
+    }
+
+    const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
+    data.lang = detRes.lang;
+
+    if (detRes.isAmbiguous && data.jobId) {
+      const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      fetchJobDetail(data.jobId, card, document);
+    }
+
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
       if (desc && desc.trim()) {

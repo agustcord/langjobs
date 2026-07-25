@@ -112,9 +112,17 @@
 
     const hint = roleHint(tokens);
 
-    // Heurística de modalidad (v0.3.6): si el puesto requiere presencia física
-    // local (híbrido / presencial) y la señal de palabras funcionales de inglés es débil
-    // (hitsEn <= 1), la vacante se clasifica como mercado local en español (ej. "Manager In Training", "Sales Representative").
+    // Heurística de modalidad (v0.4.0 - Opción B):
+    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
+    // sin stopwords en español, marcar como ambiguo (isAmbiguous: true, lang: 'unknown')
+    // para desencadenar el fetch silencioso en segundo plano y resolver a 100% con la descripción completa.
+    const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
+                        hint === 'en' && hitsEs === 0 && accentHits === 0;
+
+    if (isAmbiguous) {
+      return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
+    }
+
     if ((opts.modality === 'hibrido' || opts.modality === 'presencial') && hitsEn <= 1) {
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
