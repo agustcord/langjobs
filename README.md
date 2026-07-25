@@ -46,6 +46,7 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 2. El texto de cada tarjeta se clasifica con un **detector de idioma por stopwords funcionales** (artículos, preposiciones, conjunciones) — inmune a la jerga técnica en inglés típica de las vacantes en español (*"buscamos developer con experiencia en testing y deployment"* → español ✅).
 3. Ante la duda, **fail-open**: si el detector no está seguro, la vacante se muestra con badge `??` y **nunca** se oculta/atenua. Preferimos que veas una de más antes que perder una válida.
 4. Según el `CONFIG` (T1.8), la acción se aplica solo con **estilos CSS propios** (`llf-hidden` / `llf-dim`) — nunca se eliminan nodos del DOM (preserva la virtualización de LinkedIn). Modos: `label` (solo badge), `dim` (atenuar no deseados), `hide` (ocultar no deseados). `targetLang` es el idioma que se **mantiene visible**.
+5. **Retro-etiquetado (T1.9):** al abrir una vacante, LangJobs lee su **panel de detalle** (descripción completa, columna derecha) y re-clasifica esa tarjeta con el texto íntegro — mucho más fiable que el solo título. Una vez resuelto el idioma (es/en) por su descripción, no se degrada al volver a la lista.
 
 ## 📁 Estructura del repositorio
 
@@ -74,7 +75,7 @@ La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensi�
 |---|---|
 | Planificación y arquitectura | ✅ Completa |
 | Repositorio y documentación | ✅ Completa |
-| Prototipo Tampermonkey (validación de lógica) | 🔄 En curso — T1.1–T1.8 ✅, falta T1.9–T1.11 |
+| Prototipo Tampermonkey (validación de lógica) | 🔄 En curso — T1.1–T1.9 ✅, falta T1.10–T1.11 |
 | Extensión Chrome (Manifest V3) | ⏳ Pendiente |
 | Publicación en Chrome Web Store | ⏳ Pendiente |
 
@@ -107,7 +108,8 @@ La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensi�
   - [x] T1.1 Stopwords ES/EN · [x] T1.2 Detector de idioma · [x] T1.3 Harness de tests
   - [x] T1.4 Inspección del DOM real · [x] T1.5 Selectores en capas · [x] T1.6 Userscript (solo etiquetar)
   - [x] T1.7 MutationObserver + debounce + hash idempotente · [x] T1.8 Modos ocultar/atenuar (CONFIG)
-  - [ ] T1.9 Clasificación por panel de detalle · [ ] T1.10 Prueba en navegador real · [ ] T1.11 Ajuste de listas/umbral
+  - [x] T1.9 Clasificación por panel de detalle (retro-etiquetado)
+  - [ ] T1.10 Prueba en navegador real · [ ] T1.11 Ajuste de listas/umbral
 - [ ] **Fase 2** — Extensión Chrome MV3: popup de configuración, storage local, publicación
 - [ ] **Fase 3** — Modelo freemium (funciones avanzadas: más idiomas, whitelist de empresas)
 
