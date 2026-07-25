@@ -159,12 +159,13 @@
     return data.lang && data.lang !== 'unknown' && data.lang !== config.targetLang;
   }
 
-  // Helper para verificar si un nodo es realmente una tarjeta de la lista izquierda
-  // (ignora botones de 'Solicitud sencilla' del panel derecho).
-  function isJobCard(node) {
+  // Helper para verificar si un nodo es realmente el contenedor principal de una tarjeta
+  // (excluye enlaces <a>, botones <button>, y elementos del panel de detalle).
+  function isJobCardContainer(node) {
     if (!node || !node.tagName) return false;
     const tag = node.tagName.toUpperCase();
-    if (tag === 'BUTTON' || (node.classList && node.classList.contains('jobs-apply-button'))) return false;
+    // Jamás etiquetar enlaces <a> (el overflow:hidden los corta) ni botones <button>
+    if (tag === 'A' || tag === 'BUTTON' || (node.classList && node.classList.contains('jobs-apply-button'))) return false;
     if (node.closest && (node.closest('.jobs-apply-button') || node.closest('.jobs-unified-top-card__content'))) return false;
     return true;
   }
@@ -180,7 +181,6 @@
       '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
       '[data-job-id]{position:relative !important;}\n' +
       // Posición top:8px, right:40px: queda a la IZQUIERDA del botón nativo de descartar (right:8px)
-      // sin taparlo jamás y con 100% de visibilidad garantizada.
       '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
       'display:inline-block;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
@@ -190,7 +190,7 @@
 
   // ── Aplica la acción DOM según CONFIG (T1.8) ───────────────────────────────
   function applyAction(card, data, doc, config) {
-    if (!isJobCard(card)) return;
+    if (!isJobCardContainer(card)) return;
     config = config || CONFIG;
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     if (!card.classList) return;
@@ -203,7 +203,7 @@
 
   // ── Etiquetado visual (inserta badge flotante; respeta idempotencia salvo force) ─
   function tagCard(card, getDescription, doc, opts) {
-    if (!isJobCard(card)) return { lang: 'unknown' };
+    if (!isJobCardContainer(card)) return { lang: 'unknown' };
     opts = opts || {};
     const data = classify(card, getDescription);
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
@@ -235,7 +235,7 @@
   }
 
   function processCard(card, getDescription, doc, opts) {
-    if (!isJobCard(card)) return { skipped: true };
+    if (!isJobCardContainer(card)) return { skipped: true };
     opts = opts || {};
     const h = hashOf(card, doc);
     const prevHash = card.getAttribute && card.getAttribute('data-llf-hash');
@@ -262,11 +262,7 @@
     opts = opts || {};
     if (!root || !root.querySelectorAll) return [];
     const cards = root.querySelectorAll('[data-job-id]');
-    const list = Array.prototype.slice.call(cards).filter(isJobCard);
-    // querySelectorAll devuelve un NodeList (tiene forEach pero NO map).
-    // Convertir SIEMPRE a Array real para poder usar .map de forma segura
-    // en el navegador (en Node mis mocks eran arrays y enmascaraban el bug).
-    const list = Array.prototype.slice.call(cards);
+    const list = Array.prototype.slice.call(cards).filter(isJobCardContainer);
     LAST_ERRORS.length = 0;
     return list.map(function (card, i) {
       // BLINDAJE (v0.3.0): una tarjeta con forma inesperada (LinkedIn redeploy)
