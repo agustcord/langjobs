@@ -8,7 +8,7 @@
 
 *Filter LinkedIn job posts by language (Spanish / English) — 100% local processing, zero data leaves your browser.*
 
-![Estado](https://img.shields.io/badge/estado-en%20planificaci%C3%B3n-yellow)
+![Estado](https://img.shields.io/badge/estado-en%20desarrollo-green)
 ![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
 ![Privacidad](https://img.shields.io/badge/privacidad-100%25%20local-success)
 ![Prototipo](https://img.shields.io/badge/prototipo-Tampermonkey-00485B?logo=tampermonkey)
@@ -27,7 +27,7 @@ Buscás trabajo en LinkedIn desde Latinoamérica o España y los resultados mezc
 
 | Modo | Qué hace |
 |---|---|
-| 🏷️ **Etiquetar** | Agrega un badge de idioma (🇪🇸/🇬🇧) a cada tarjeta, sin ocultar nada |
+| 🏷️ **Etiquetar** | Agrega un badge de idioma (ES / EN) a cada tarjeta, sin ocultar nada |
 | 🌫️ **Atenuar** | Baja la opacidad de las vacantes en el idioma que no querés |
 | 🙈 **Ocultar** | Las saca de tu vista (reversible con un click) |
 
@@ -42,34 +42,66 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 
 ## ⚙️ Cómo funciona (resumen técnico)
 
-1. Un `MutationObserver` detecta las tarjetas de vacantes que LinkedIn agrega dinámicamente al hacer scroll.
-2. El texto visible de cada tarjeta se clasifica con un **detector de idioma por stopwords funcionales** (artículos, preposiciones, conjunciones) — inmune a la jerga técnica en inglés típica de las vacantes en español (*"buscamos developer con experiencia en testing y deployment"* → español ✅).
-3. Ante la duda, **fail-open**: si el detector no está seguro, la vacante se muestra. Preferimos que veas una de más antes que perder una válida.
-4. La acción elegida (etiquetar/atenuar/ocultar) se aplica solo con clases CSS propias — nunca se eliminan nodos del DOM.
+1. Al cargar `linkedin.com/jobs/search/`, LangJobs recorre las tarjetas visibles (`[data-job-id]`) y las clasifica. El `MutationObserver` para el scroll infinito y nodos reciclados está en desarrollo (T1.7).
+2. El texto de cada tarjeta se clasifica con un **detector de idioma por stopwords funcionales** (artículos, preposiciones, conjunciones) — inmune a la jerga técnica en inglés típica de las vacantes en español (*"buscamos developer con experiencia en testing y deployment"* → español ✅).
+3. Ante la duda, **fail-open**: si el detector no está seguro, la vacante se muestra con badge `??`. Preferimos que veas una de más antes que perder una válida.
+4. La acción elegida (etiquetar/atenuar/ocultar) se aplica solo con estilos CSS propios — nunca se eliminan nodos del DOM.
+
+## 📁 Estructura del repositorio
+
+```
+src/
+  stopwords.js        # listas de stopwords funcionales ES/EN (módulo UMD)
+  detector.js         # detectLanguage(texto) -> {lang, scoreEs, scoreEn} (UMD, puro)
+  selectors.js        # extracción del DOM de LinkedIn por capas (UMD, inyectable)
+  app.js              # orquestación: une los módulos y etiqueta tarjetas (UMD)
+tools/
+  build_userscript.js # bundler sin dependencias -> userscript/langjobs.user.js
+userscript/
+  langjobs.user.js    # script generado, listo para Tampermonkey (no editar a mano)
+tests/
+  corpus.js           # casos de prueba del detector (ES/EN/edge cases)
+  run.js              # harness de consola (Node)
+```
+
+La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensión Chrome (Fase 2), por eso los módulos son UMD y no crean el DOM por su cuenta (reciben los nodos inyectados).
 
 ## 🚀 Estado del proyecto
 
-> 🟡 **En planificación / desarrollo temprano.** Todavía no hay versión instalable.
+> 🟢 **Fase 1 en desarrollo.** El prototipo Tampermonkey ya etiqueta vacantes por idioma (modo solo etiquetar). Aún no hay build instalable oficial; se prueba manualmente en navegador.
 
 | Fase | Estado |
 |---|---|
 | Planificación y arquitectura | ✅ Completa |
-| Repositorio y documentación | 🔄 En curso |
-| Prototipo Tampermonkey (validación de lógica) | ⏳ Próximamente |
+| Repositorio y documentación | ✅ Completa |
+| Prototipo Tampermonkey (validación de lógica) | 🔄 En curso — T1.1–T1.6 ✅, falta T1.7–T1.11 |
 | Extensión Chrome (Manifest V3) | ⏳ Pendiente |
 | Publicación en Chrome Web Store | ⏳ Pendiente |
 
-### Instalación
+### Instalación (Fase 1 — prototipo Tampermonkey)
 
-- **Hoy:** nada que instalar todavía
-- **Fase 1:** userscript para [Tampermonkey](https://www.tampermonkey.net/) (se publicará acá con instrucciones)
+1. Instalá la extensión [Tampermonkey](https://www.tampermonkey.net/) en tu navegador (Chromium: Brave, Chrome, Edge).
+2. Generá el userscript desde la fuente (sin dependencias):
+   ```bash
+   node tools/build_userscript.js
+   ```
+   Esto crea `userscript/langjobs.user.js` autocontenido (los módulos de `src/` ya incrustados, sin `@require` frágiles).
+3. En Tampermonkey → *Agregar nuevo script* → pegá el contenido de `userscript/langjobs.user.js` → *Guardar*.
+4. Andá a `linkedin.com/jobs/search/`. Cada tarjeta muestra un badge **ES** / **EN** / **??**.
+
+> 🔬 Modo actual: **solo etiquetar** (no oculta nada) para validar precisión sin riesgo. El ocultado y la configuración llegarán en T1.8+.
+
 - **Fase 2:** extensión nativa para Chrome (modo desarrollador primero, luego Chrome Web Store)
 
 ## 🗺️ Roadmap resumido
 
 - [x] Arquitectura, requisitos y estrategia de testing
 - [x] Repositorio y documentación
-- [ ] **Fase 1** — Prototipo Tampermonkey: detector de stopwords + manejo del DOM dinámico
+- [x] **Fase 1 — Prototipo Tampermonkey** (en curso):
+  - [x] T1.1 Stopwords ES/EN · [x] T1.2 Detector de idioma · [x] T1.3 Harness de tests
+  - [x] T1.4 Inspección del DOM real · [x] T1.5 Selectores en capas · [x] T1.6 Userscript (solo etiquetar)
+  - [ ] T1.7 MutationObserver + debounce · [ ] T1.8 Modos ocultar/atenuar · [ ] T1.9 Clasificación por panel de detalle
+  - [ ] T1.10 Prueba en navegador real · [ ] T1.11 Empaquetado y release del userscript
 - [ ] **Fase 2** — Extensión Chrome MV3: popup de configuración, storage local, publicación
 - [ ] **Fase 3** — Modelo freemium (funciones avanzadas: más idiomas, whitelist de empresas)
 
