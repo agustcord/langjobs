@@ -42,10 +42,10 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 
 ## ⚙️ Cómo funciona (resumen técnico)
 
-1. Al cargar `linkedin.com/jobs/search/`, LangJobs recorre las tarjetas visibles (`[data-job-id]`) y las clasifica. El `MutationObserver` para el scroll infinito y nodos reciclados está en desarrollo (T1.7).
+1. Al cargar `linkedin.com/jobs/search/`, LangJobs recorre las tarjetas visibles (`[data-job-id]`) y las clasifica. Un **`MutationObserver`** (T1.7) vigila el scroll infinito y los nodos reciclados de LinkedIn, con *debounce* para no reprocesar en cada mutación y un hash de contenido (`data-llf-hash`) para saltar tarjetas ya etiquetadas.
 2. El texto de cada tarjeta se clasifica con un **detector de idioma por stopwords funcionales** (artículos, preposiciones, conjunciones) — inmune a la jerga técnica en inglés típica de las vacantes en español (*"buscamos developer con experiencia en testing y deployment"* → español ✅).
-3. Ante la duda, **fail-open**: si el detector no está seguro, la vacante se muestra con badge `??`. Preferimos que veas una de más antes que perder una válida.
-4. La acción elegida (etiquetar/atenuar/ocultar) se aplica solo con estilos CSS propios — nunca se eliminan nodos del DOM.
+3. Ante la duda, **fail-open**: si el detector no está seguro, la vacante se muestra con badge `??` y **nunca** se oculta/atenua. Preferimos que veas una de más antes que perder una válida.
+4. Según el `CONFIG` (T1.8), la acción se aplica solo con **estilos CSS propios** (`llf-hidden` / `llf-dim`) — nunca se eliminan nodos del DOM (preserva la virtualización de LinkedIn). Modos: `label` (solo badge), `dim` (atenuar no deseados), `hide` (ocultar no deseados). `targetLang` es el idioma que se **mantiene visible**.
 
 ## 📁 Estructura del repositorio
 
@@ -68,13 +68,13 @@ La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensi�
 
 ## 🚀 Estado del proyecto
 
-> 🟢 **Fase 1 en desarrollo.** El prototipo Tampermonkey ya etiqueta vacantes por idioma (modo solo etiquetar). Aún no hay build instalable oficial; se prueba manualmente en navegador.
+> 🟢 **Fase 1 en desarrollo.** El prototipo Tampermonkey ya etiqueta y filtra vacantes por idioma (modos etiquetar / atenuar / ocultar, conmutables vía `CONFIG`). Aún no hay build instalable oficial; se prueba manualmente en navegador.
 
 | Fase | Estado |
 |---|---|
 | Planificación y arquitectura | ✅ Completa |
 | Repositorio y documentación | ✅ Completa |
-| Prototipo Tampermonkey (validación de lógica) | 🔄 En curso — T1.1–T1.6 ✅, falta T1.7–T1.11 |
+| Prototipo Tampermonkey (validación de lógica) | 🔄 En curso — T1.1–T1.8 ✅, falta T1.9–T1.11 |
 | Extensión Chrome (Manifest V3) | ⏳ Pendiente |
 | Publicación en Chrome Web Store | ⏳ Pendiente |
 
@@ -87,9 +87,15 @@ La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensi�
    ```
    Esto crea `userscript/langjobs.user.js` autocontenido (los módulos de `src/` ya incrustados, sin `@require` frágiles).
 3. En Tampermonkey → *Agregar nuevo script* → pegá el contenido de `userscript/langjobs.user.js` → *Guardar*.
-4. Andá a `linkedin.com/jobs/search/`. Cada tarjeta muestra un badge **ES** / **EN** / **??**.
+4. Andá a `linkedin.com/jobs/search/`. Cada tarjeta muestra un badge **ES** / **EN** / **??** y, según el modo, se atenúa u oculta.
 
-> 🔬 Modo actual: **solo etiquetar** (no oculta nada) para validar precisión sin riesgo. El ocultado y la configuración llegarán en T1.8+.
+> 🔧 **Configuración (T1.8):** en el archivo `userscript/langjobs.user.js` hay un bloque `CONFIG` editable al inicio del script:
+> ```js
+> var CONFIG = { targetLang: 'es', mode: 'label' };
+> ```
+> - `targetLang`: idioma que se **mantiene visible** (`'es'` o `'en'`).
+> - `mode`: `'label'` (solo badge, por defecto, para validar sin riesgo) · `'dim'` (atenuar las no deseadas) · `'hide'` (ocultar las no deseadas).
+> Las vacantes `unknown` **nunca** se ocultan (fail-open). Para cambiar el comportamiento, editá `CONFIG`, guardá y recargá la página.
 
 - **Fase 2:** extensión nativa para Chrome (modo desarrollador primero, luego Chrome Web Store)
 
@@ -100,8 +106,8 @@ La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensi�
 - [x] **Fase 1 — Prototipo Tampermonkey** (en curso):
   - [x] T1.1 Stopwords ES/EN · [x] T1.2 Detector de idioma · [x] T1.3 Harness de tests
   - [x] T1.4 Inspección del DOM real · [x] T1.5 Selectores en capas · [x] T1.6 Userscript (solo etiquetar)
-  - [ ] T1.7 MutationObserver + debounce · [ ] T1.8 Modos ocultar/atenuar · [ ] T1.9 Clasificación por panel de detalle
-  - [ ] T1.10 Prueba en navegador real · [ ] T1.11 Empaquetado y release del userscript
+  - [x] T1.7 MutationObserver + debounce + hash idempotente · [x] T1.8 Modos ocultar/atenuar (CONFIG)
+  - [ ] T1.9 Clasificación por panel de detalle · [ ] T1.10 Prueba en navegador real · [ ] T1.11 Ajuste de listas/umbral
 - [ ] **Fase 2** — Extensión Chrome MV3: popup de configuración, storage local, publicación
 - [ ] **Fase 3** — Modelo freemium (funciones avanzadas: más idiomas, whitelist de empresas)
 
