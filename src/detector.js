@@ -46,6 +46,7 @@
     'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
     'editor', 'designer', 'motion', 'video', 'product',
     'software', 'architect', 'contractor', 'system', 'systems', 'data', 'cloud', 'devops', 'fullstack', 'backend', 'frontend', 'ai',
+    'customer', 'service', 'account', 'creative', 'media', 'buyer', 'content',
   ]);
 
   function roleHint(tokens) {
@@ -122,17 +123,17 @@
     }
 
     // Heurística de modalidad (v0.4.4 - Opción B):
-    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en'),
+    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en' o hitsEn > 0),
     // marcar como ambiguo (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso
     // o el retro-etiquetado y resuelva con la descripción completa a 100% (ej: "Senior Software Engineer").
     const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
-                        hint === 'en' && hitsEs <= 2;
+                        (hint === 'en' || (hitsEn > 0 && hint !== 'es'));
 
     if (isAmbiguous) {
       return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
-    if ((opts.modality === 'hibrido' || opts.modality === 'presencial') && hitsEn <= 1) {
+    if ((opts.modality === 'hibrido' || opts.modality === 'presencial') && (hint === 'es' || hitsEs > hitsEn)) {
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 

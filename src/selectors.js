@@ -95,23 +95,56 @@
     return '';
   }
 
-  // Descripción: capa estructural (p[dir="ltr"], #job-details, .jobs-description__content, etc.)
+  // Descripción: capa estructural (#job-details, .jobs-description__content, etc.)
   function descriptionFromDetail(detailRoot) {
     if (!detailRoot || !detailRoot.querySelector) return '';
-    const exact = detailRoot.querySelector('p[dir="ltr"]') ||
-                  detailRoot.querySelector('[dir="ltr"]') ||
-                  detailRoot.querySelector('#job-details') ||
+
+    // 1. Capa primordial: buscar específicamente el contenedor del cuerpo de la vacante.
+    let container = null;
+    const isDescNode = function (node) {
+      if (!node) return false;
+      if (node.id === 'job-details') return true;
+      if (node.matches && node.matches('#job-details, .jobs-description__content, .jobs-description-content__text, .jobs-box__html-content, .jobs-description')) return true;
+      const c = (typeof node.className === 'string') ? node.className : (node.getAttribute ? node.getAttribute('class') || '' : '');
+      if (c.includes('jobs-description') || c.includes('jobs-box__html-content')) return true;
+      return false;
+    };
+
+    if (isDescNode(detailRoot)) {
+      container = detailRoot;
+    } else {
+      container = detailRoot.querySelector('#job-details') ||
                   detailRoot.querySelector('.jobs-description__content') ||
                   detailRoot.querySelector('.jobs-description-content__text') ||
                   detailRoot.querySelector('.jobs-box__html-content') ||
-                  detailRoot.querySelector('.mt4');
-    if (exact && exact.textContent && exact.textContent.trim()) return exact.textContent;
-    // Heurística: máxima densidad de texto entre elementos contenedores.
+                  detailRoot.querySelector('.jobs-description');
+    }
+
+    if (container && container.textContent && container.textContent.trim()) {
+      return container.textContent;
+    }
+
+    // 2. Si no hay contenedor explícito #job-details, buscar elementos dentro de detailRoot,
+    // pero EXCLUYENDO cualquier sub-árbol que pertenezca a la cabecera top-card.
+    const candidates = detailRoot.querySelectorAll ? detailRoot.querySelectorAll('p[dir="ltr"], [dir="ltr"], .mt4') : [];
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i];
+      if (cand.closest && cand.closest('.jobs-unified-top-card, .jobs-details__top-card, .jobs-unified-top-card__content')) {
+        continue; // Ignorar metadatos de UI de la cabecera (ej: "Promocionado por técnico de selección")
+      }
+      const text = (cand.textContent || '').trim();
+      if (text.length > 30) {
+        return text;
+      }
+    }
+
+    // 3. Heurística: máxima densidad de texto excluyendo top-card.
     let best = '';
     let bestLen = 0;
     const children = detailRoot.querySelectorAll ? detailRoot.querySelectorAll('div, section, article') : [];
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
+      if (child.closest && child.closest('.jobs-unified-top-card, .jobs-details__top-card, .jobs-unified-top-card__content')) continue;
       const t = (child.textContent || '').trim();
       if (t.length > bestLen) { bestLen = t.length; best = t; }
     }
@@ -165,18 +198,14 @@
     if (!root || !root.querySelector) return null;
     let active = root.querySelector('[aria-current="page"]') ||
                  root.querySelector('[aria-current="true"]') ||
-                 root.querySelector('.jobs-search-results-list__list-item--active [data-job-id]') ||
-                 root.querySelector('.job-card-container--active [data-job-id]') ||
-                 root.querySelector('.job-card-list--active [data-job-id]') ||
                  root.querySelector('.jobs-search-results-list__list-item--active') ||
                  root.querySelector('.job-card-container--active') ||
-                 root.querySelector('.job-card-list--active');
+                 root.querySelector('.job-card-list--active') ||
+                 root.querySelector('.jobs-search-results-list__list-item[class*="active"]') ||
+                 root.querySelector('.job-card-container[class*="active"]') ||
+                 root.querySelector('.job-card-list[class*="active"]');
     if (!active) return null;
-    if (active.getAttribute && active.getAttribute('data-job-id')) {
-      return active.getAttribute('data-job-id');
-    }
-    const child = active.querySelector && active.querySelector('[data-job-id]');
-    return child && child.getAttribute ? child.getAttribute('data-job-id') : null;
+    return jobIdFromCard(active);
   }
 
   // Texto del panel de detalle (columna derecha) para la vacante activa.
@@ -239,13 +268,18 @@
 
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    let match = htmlString.match(/<div[^>]*class="[^"]*mt4[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+    let match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
                 htmlString.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
                 htmlString.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
     let rawText = match ? match[1] : htmlString;
-    let cleaned = rawText.replace(/<[^>]+>/g, ' ');
-    return cleanText(cleaned);
+    let cleaned = cleanText(rawText.replace(/<[^>]+>/g, ' '));
+    if (cleaned.length < 50 && match) {
+      cleaned = cleanText(htmlString.replace(/<[^>]+>/g, ' '));
+    }
+    return cleaned;
   }
 
   return {

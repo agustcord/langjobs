@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Concept 1: Filter funnel with two drops (ES blue / EN green) -->
+  <rect x="24" y="24" width="464" height="464" rx="96" ry="96" fill="#0a66c2"/>
+  <!-- Funnel (white) -->
+  <path d="M 150,150 L 362,150 L 256,300 L 256,400 L 256,400 L 256,400 Z" fill="#ffffff"/>
+  <path d="M 150,150 L 362,150 L 256,300 Z" fill="#ffffff"/>
+  <rect x="236" y="300" width="40" height="100" fill="#ffffff"/>
+  <!-- Two drops: blue (ES) and green (EN) falling out -->
+  <circle cx="232" cy="430" r="20" fill="#0a66c2"/>
+  <circle cx="282" cy="430" r="20" fill="#057642"/>
+</svg>

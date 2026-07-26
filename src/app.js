@@ -124,36 +124,56 @@
     }
   }
 
+  // Helper de debug: solo loguea si ?llfdebug=1 está en la URL
+  function _dbg() {
+    if (typeof window !== 'undefined' && window.location && window.location.search &&
+        window.location.search.indexOf('llfdebug=1') !== -1) {
+      console.log.apply(console, ['[LJF]'].concat(Array.prototype.slice.call(arguments)));
+    }
+  }
+
   function classify(card, getDescription) {
     const data = selectors.extractFromCard(card);
     data.langSource = 'title';
 
+    _dbg('classify', { jobId: data.jobId, title: data.title, company: data.company, modality: data.modality });
+
     if (data.jobId && FETCH_CACHE[data.jobId]) {
       data.lang = FETCH_CACHE[data.jobId];
       data.langSource = 'async-fetch';
+      _dbg('  → FETCH_CACHE hit:', data.lang);
       return data;
     }
 
-    const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
+    const detInput = (data.title || '') + ' ' + (data.company || '');
+    const detRes = detector.detectLanguage(detInput, { modality: data.modality });
     data.lang = detRes.lang;
     data.isAmbiguous = detRes.isAmbiguous || false;
 
+    _dbg('  → detectLanguage:', { input: detInput.slice(0, 80), lang: detRes.lang, isAmbiguous: !!detRes.isAmbiguous, hitsEs: detRes.hitsEs, hitsEn: detRes.hitsEn, accentHits: detRes.accentHits });
+
     if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
       const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      _dbg('  → fetchJobDetail dispatched for jobId:', data.jobId);
       fetchJobDetail(data.jobId, card, document);
     }
 
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
       if (desc && desc.trim()) {
-        const descLang = detector.detectLanguage(desc).lang;
-        if (descLang === 'es' || descLang === 'en') {
+        _dbg('  → getDescription returned', desc.length, 'chars, first 120:', desc.slice(0, 120));
+        const descRes = detector.detectLanguage(desc);
+        _dbg('  → desc detectLanguage:', { lang: descRes.lang, hitsEs: descRes.hitsEs, hitsEn: descRes.hitsEn });
+        if (descRes.lang === 'es' || descRes.lang === 'en') {
           data.description = selectors.cleanText(desc);
-          data.lang = descLang;
+          data.lang = descRes.lang;
           data.isAmbiguous = false;
           data.langSource = 'description';
-          if (data.jobId) FETCH_CACHE[data.jobId] = descLang;
+          if (data.jobId) FETCH_CACHE[data.jobId] = descRes.lang;
+          _dbg('  → FINAL from description:', data.lang, '(FETCH_CACHE set)');
         }
+      } else {
+        _dbg('  → getDescription: empty (card not active or no panel)');
       }
     }
     return data;
@@ -274,9 +294,12 @@
     const prevHash = card.getAttribute && card.getAttribute('data-llf-hash');
     const prevLang = card.getAttribute && card.getAttribute('data-llf-lang');
 
+    _dbg('processCard', { jobId: selectors.extractFromCard(card).jobId, prevHash: (prevHash || '').slice(0, 40), hash: h.slice(0, 40), prevLang: prevLang, force: !!opts.force });
+
     let data;
     if (!opts.force && prevHash === h && prevLang) {
       data = { lang: prevLang, jobId: (selectors.extractFromCard(card).jobId) };
+      _dbg('  → HASH MATCH, reusing prevLang:', prevLang);
     } else {
       if (opts.force || prevHash !== h) {
         if (card.setAttribute) card.setAttribute('data-llf-lang', '');
@@ -286,9 +309,14 @@
       // una tarjeta ambigua (isAmbiguous). Si es ambigua, hay un fetch en vuelo que
       // la resolverá — no pisar el '??' con el ES/EN anterior incorrecto.
       if (data.lang === 'unknown' && !data.isAmbiguous && (prevLang === 'es' || prevLang === 'en')) {
+        _dbg('  → FREEZE prevLang:', prevLang, '(unknown + !isAmbiguous)');
         data.lang = prevLang;
       }
+      if (data.lang === 'unknown' && data.isAmbiguous) {
+        _dbg('  → AMBIGUOUS, NOT freezing (fetch in flight)');
+      }
       if (card.setAttribute) card.setAttribute('data-llf-hash', h);
+      _dbg('  → FINAL lang:', data.lang, 'source:', data.langSource || 'processCard');
     }
 
     // SIEMPRE aplicar la acción (label/dim/hide), incluso si el hash no cambió
