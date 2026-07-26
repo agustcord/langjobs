@@ -225,6 +225,7 @@
     'cashier', 'waiter', 'driver', 'recruiter',
     'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
     'editor', 'designer', 'motion', 'video', 'product',
+    'software', 'architect', 'contractor', 'system', 'systems', 'data', 'cloud', 'devops', 'fullstack', 'backend', 'frontend', 'ai',
   ]);
 
   function roleHint(tokens) {
@@ -820,26 +821,20 @@
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
 
     if (document && document.createElement && card.setAttribute) {
-      const ya = card.getAttribute('data-llf-lang');
-      if (!ya || opts.force) {
-        if (opts.force) {
-          const prev = card.querySelector && card.querySelector('.llf-badge');
-          if (prev) { if (prev.remove) prev.remove(); else if (card.removeChild) card.removeChild(prev); }
-        }
-        if (!card.querySelector || !card.querySelector('.llf-badge')) {
-          const b = BADGE[data.lang] || BADGE.unknown;
-          const badge = document.createElement('span');
-          badge.className = 'llf-badge';
-          badge.setAttribute('data-llf-badge', '');
-          badge.textContent = b.label;
-          badge.style.cssText = 'background:' + b.color + ';';
-          if (card.insertBefore) {
-            card.insertBefore(badge, card.firstChild);
-          } else if (card.appendChild) {
-            card.appendChild(badge);
-          }
+      const b = BADGE[data.lang] || BADGE.unknown;
+      let badge = card.querySelector && card.querySelector('.llf-badge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'llf-badge';
+        badge.setAttribute('data-llf-badge', '');
+        if (card.insertBefore) {
+          card.insertBefore(badge, card.firstChild);
+        } else if (card.appendChild) {
+          card.appendChild(badge);
         }
       }
+      badge.textContent = b.label;
+      badge.style.cssText = 'background:' + b.color + ';';
     }
     if (card.setAttribute) card.setAttribute('data-llf-lang', data.lang);
     return data;

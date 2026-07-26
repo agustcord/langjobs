@@ -45,6 +45,7 @@
     'cashier', 'waiter', 'driver', 'recruiter',
     'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
     'editor', 'designer', 'motion', 'video', 'product',
+    'software', 'architect', 'contractor', 'system', 'systems', 'data', 'cloud', 'devops', 'fullstack', 'backend', 'frontend', 'ai',
   ]);
 
   function roleHint(tokens) {
