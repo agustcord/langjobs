@@ -11,6 +11,14 @@
  *   script responde { es, en, unknown } contando los atributos data-llf-lang
  *   de las tarjetas visibles (T2.6). Se refresca cada 1.5 s mientras el popup
  *   está abierto (LinkedIn carga tarjetas con scroll infinito).
+ *
+ * CORRECCIÓN (post-captura de campo): el conteo se pide SIEMPRE al content
+ * script, independientemente del estado local del checkbox. `checkbox.checked`
+ * se asigna en readConfig() de forma ASÍNCRONA (chrome.storage.local.get), por
+ * lo que leerlo en el primer requestCount() daba false y mostraba "apagado"
+ * aunque el etiquetado estuviera activado. Ahora el estado real (`isEnabled`)
+ * se sincroniza en el callback de readConfig y el conteo se solicita dentro de
+ * ese mismo callback; el interval usa isEnabled ya actualizado.
  */
 (function () {
   'use strict';
@@ -26,22 +34,29 @@
   var elNote = document.getElementById('stats-note');
   var timer = null;
 
+  // Estado real de habilitado, sincronizado desde chrome.storage (async).
+  var isEnabled = DEFAULT_ENABLED;
+
   function readConfig() {
     if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
-      checkbox.checked = DEFAULT_ENABLED;
+      isEnabled = DEFAULT_ENABLED;
+      if (checkbox) checkbox.checked = DEFAULT_ENABLED;
+      requestCount(); // no hay storage: usamos default y pedimos conteo igual
       return;
     }
     chrome.storage.local.get([KEY], function (cfg) {
-      checkbox.checked = (typeof cfg[KEY] === 'boolean') ? cfg[KEY] : DEFAULT_ENABLED;
-      if (!checkbox.checked) showDisabledNote();
+      isEnabled = (typeof cfg[KEY] === 'boolean') ? cfg[KEY] : DEFAULT_ENABLED;
+      if (checkbox) checkbox.checked = isEnabled;
+      requestCount(); // pedir conteo YA con isEnabled sincronizado
     });
   }
 
   function onToggle() {
+    isEnabled = !!checkbox.checked;
     if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
-    var value = !!checkbox.checked;
-    chrome.storage.local.set({ enabled: value }, function () {});
-    if (!value) showDisabledNote();
+    chrome.storage.local.set({ enabled: isEnabled }, function () {});
+    if (!isEnabled) showDisabledNote();
+    else requestCount(); // al prender, refrescar de inmediato
   }
 
   function showDisabledNote() {
@@ -51,36 +66,41 @@
     if (elUnk) elUnk.textContent = '–';
   }
 
+  function showNoPageNote() {
+    if (elNote) elNote.textContent = 'Abre linkedin.com/jobs para ver el conteo.';
+    if (elEs) elEs.textContent = '–';
+    if (elEn) elEn.textContent = '–';
+    if (elUnk) elUnk.textContent = '–';
+  }
+
   function setCounts(c) {
     if (elEs) elEs.textContent = (c && c.es != null) ? c.es : '–';
     if (elEn) elEn.textContent = (c && c.en != null) ? c.en : '–';
     if (elUnk) elUnk.textContent = (c && c.unknown != null) ? c.unknown : '–';
-    if (elNote) elNote.textContent = 'Conteo en vivo de la página de LinkedIn.';
+    if (elNote) elNote.textContent = isEnabled
+      ? 'Conteo en vivo de la página de LinkedIn.'
+      : 'Etiquetado apagado: sin conteo disponible.';
   }
 
-  // Pide el conteo al content script de la pestaña activa.
+  // Pide el conteo al content script de la pestaña activa. SIEMPRE lo pedimos;
+  // el content script responde 0/0/0 si está apagado. La nota "apagado" la
+  // decide isEnabled (ya sincronizado), no el timing del DOM.
   function requestCount() {
-    if (!checkbox.checked) { showDisabledNote(); return; }
-    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) { showDisabledNote(); return; }
+    if (typeof chrome === 'undefined' || !chrome.tabs || !chrome.tabs.query) { showNoPageNote(); return; }
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
       var tab = tabs && tabs[0];
-      if (!tab || tab.id == null) { showDisabledNote(); return; }
-      // Si no estamos en linkedin.com/jobs, el content script no está inyectado.
-      if (typeof chrome.runtime === 'undefined' || !chrome.runtime.sendMessage) { showDisabledNote(); return; }
+      if (!tab || tab.id == null) { if (isEnabled) showNoPageNote(); else showDisabledNote(); return; }
+      if (typeof chrome.runtime === 'undefined' || !chrome.runtime.sendMessage) { if (isEnabled) showNoPageNote(); else showDisabledNote(); return; }
       try {
         chrome.runtime.sendMessage(tab.id, { type: 'LJF_COUNT' }, function (resp) {
           if (chrome.runtime.lastError || !resp) {
-            // El content script no respondió (pestaña fuera de LinkedIn, etc.)
-            if (elNote) elNote.textContent = 'Abre linkedin.com/jobs para ver el conteo.';
-            if (elEs) elEs.textContent = '–';
-            if (elEn) elEn.textContent = '–';
-            if (elUnk) elUnk.textContent = '–';
+            if (isEnabled) showNoPageNote(); else showDisabledNote();
             return;
           }
           setCounts(resp);
         });
       } catch (e) {
-        showDisabledNote();
+        if (isEnabled) showNoPageNote(); else showDisabledNote();
       }
     });
   }
@@ -95,11 +115,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    // readConfig() dispara requestCount() dentro de su callback (isEnabled ya real).
     readConfig();
-    checkbox.addEventListener('change', onToggle);
-    requestCount();
+    if (checkbox) checkbox.addEventListener('change', onToggle);
     startCounting();
-    // El popup se destruye al cerrarse; limpiamos el intervalo por si acaso.
     window.addEventListener('pagehide', stopCounting);
   });
 })();
