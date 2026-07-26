@@ -23,7 +23,6 @@ async def main():
         await ext_page.bring_to_front()
         await asyncio.sleep(1)
         
-        # Click reload button in chrome://extensions using shadow DOM piercing
         js_reload = """
         (() => {
             const manager = document.querySelector('extensions-manager');
@@ -49,7 +48,6 @@ async def main():
         
         await asyncio.sleep(2)
         
-        # Now find linkedin page and reload
         linkedin_page = None
         for p_tab in context.pages:
             if "linkedin.com/jobs" in p_tab.url:
@@ -60,25 +58,27 @@ async def main():
             print("Reloading LinkedIn page...")
             await linkedin_page.bring_to_front()
             await linkedin_page.reload()
-            await asyncio.sleep(4)
             
-            # Inspect Fever card
+            # Wait 3 seconds for async fetches to finish in background
+            await asyncio.sleep(3.5)
+            
             js_inspect = """
             (() => {
-                const feverCard = document.querySelector('[data-job-id="4421161249"]');
-                if (!feverCard) return { error: 'fever card not found' };
-                const badge = feverCard.querySelector('.llf-badge');
-                return {
-                    jobId: feverCard.getAttribute('data-job-id'),
-                    langAttr: feverCard.getAttribute('data-llf-lang'),
-                    hashAttr: feverCard.getAttribute('data-llf-hash'),
-                    badgeLabel: badge ? badge.textContent : null,
-                    badgeColor: badge ? badge.style.backgroundColor : null
-                };
+                const cards = Array.from(document.querySelectorAll('[data-job-id]'));
+                return cards.map(c => {
+                    const badge = c.querySelector('.llf-badge');
+                    const link = c.querySelector('a');
+                    return {
+                        jobId: c.getAttribute('data-job-id'),
+                        title: link ? link.textContent.trim().slice(0, 45) : '',
+                        langAttr: c.getAttribute('data-llf-lang'),
+                        badgeLabel: badge ? badge.textContent : null
+                    };
+                });
             })()
             """
             inspect_res = await linkedin_page.evaluate(js_inspect)
             import json
-            print("LinkedIn Fever Card state after extension reload:", json.dumps(inspect_res, indent=2, ensure_ascii=False))
+            print("LinkedIn Cards state after guest API auto-fetch:", json.dumps(inspect_res, indent=2, ensure_ascii=False))
 
 asyncio.run(main())

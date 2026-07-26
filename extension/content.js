@@ -615,7 +615,8 @@
 
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    const match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i) ||
+    const match = htmlString.match(/<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i) ||
                 htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/article>/i) ||
                 htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/main>/i) ||
                 htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/i) ||
@@ -739,9 +740,9 @@
     FETCH_PENDING[jobId] = true;
     activeFetches++;
 
-    const url = '/jobs/view/' + jobId + '/';
+    const url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + jobId;
     if (typeof fetch === 'function') {
-      fetch(url, { headers: { 'Accept': 'text/html' }, credentials: 'same-origin' })
+      fetch(url)
         .then(function (res) { return res.text(); })
         .then(function (html) {
           delete FETCH_PENDING[jobId];
