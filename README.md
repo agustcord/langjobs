@@ -48,15 +48,17 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 4. Según el `CONFIG` (T1.8), la acción se aplica solo con **estilos CSS propios** (`llf-hidden` / `llf-dim`) — nunca se eliminan nodos del DOM (preserva la virtualización de LinkedIn). Modos: `label` (solo badge), `dim` (atenuar no deseados), `hide` (ocultar no deseados). `targetLang` es el idioma que se **mantiene visible**.
 5. **Retro-etiquetado (T1.9):** al abrir una vacante, LangJobs lee su **panel de detalle** (descripción completa, columna derecha) y re-clasifica esa tarjeta con el texto íntegro — mucho más fiable que el solo título. Una vez resuelto el idioma (es/en) por su descripción, no se degrada al volver a la lista.
 
-## 🏆 La Arquitectura de Oro (v0.4.0 — 100% Precisión)
+## 🧱 Estrategia de detección (pipeline de 5 capas)
 
-LangJobs utiliza una arquitectura de **5 capas híbridas** que logra un acierto del **100% sin falsos ocultamientos** en búsquedas reales de LinkedIn:
+LangJobs clasifica cada vacante con un **pipeline de 5 capas** que combina detección local instantánea, heurísticas de mercado y resolución asíncrona de los casos dudosos:
 
-1. **Capa 1 — Detector Local Instantáneo (0 ms):** Evalúa `título + empresa` mediante *stopwords funcionales* y un diccionario de roles (`ROLE_ES` / `ROLE_EN`). Clasifica al instante el 90% de las vacantes de la lista.
+1. **Capa 1 — Detector Local Instantáneo (0 ms):** Evalúa `título + empresa` mediante *stopwords funcionales* y un diccionario de roles (`ROLE_ES` / `ROLE_EN`). Clasifica al instante la mayoría de las vacantes de la lista.
 2. **Capa 2 — Heurística de Modalidad de Mercado (LATAM/Rosario):** Analiza el tipo de lugar de trabajo (`Presencial` / `Híbrido` vs `En remoto`). Los puestos locales presenciales/híbridos con títulos en español se confirman inmediatamente como `ES`.
 3. **Capa 3 — Marcado de Ambigüedad Fail-Open (Gris `??`):** Si una vacante tiene título en inglés pero modalidad presencial/híbrida local (ej. *Varsity Tutors* vs *Wiener lab*), se asigna temporalmente `??` (Gris). **NUNCA se oculta ni atenúa en modo `hide`** (garantía anti-pérdida de vacantes).
-4. **Capa 4 — Fetch Silencioso Asíncrono en Segundo Plano (v0.4.0):** Para el 10% dudosas (las `??`), una cola asíncrona throttled (máx. 3 peticiones simultáneas) dispara un `fetch('/jobs/view/<jobId>/')` silencioso. Lee las 500 palabras de la descripción completa en **~300 ms** y resuelve la tarjeta en la lista de `??` ➔ `ES` o `EN` con 100% de precisión. Los resultados se guardan en el caché en memoria `FETCH_CACHE`.
+4. **Capa 4 — Fetch Silencioso Asíncrono en Segundo Plano:** Para las dudosas (las `??`), una cola asíncrona throttled (máx. 3 peticiones simultáneas) dispara un `fetch('/jobs/view/<jobId>/')` silencioso. Lee las 500 palabras de la descripción completa en **~300 ms** y resuelve la tarjeta en la lista de `??` ➔ `ES` o `EN`. Los resultados se guardan en el caché en memoria `FETCH_CACHE`.
 5. **Capa 5 — Retro-etiquetado por Panel de Detalle Activo:** Al seleccionar cualquier tarjeta en la lista, el lector del panel derecho confirma el idioma en tiempo real.
+
+> ⚠️ **Sobre la precisión:** la detección es buena pero **no es perfecta**. En pruebas internas con un corpus de casos conocidos (títulos cortos, spanglish, bilingüe, jerga técnica) el acierto se ubica en un rango aproximado de **80%–90%**, y **todavía no hay una validación de precisión formal en búsquedas reales de LinkedIn**. El modo `label` (V1) entrega valor aunque haya algún error: siempre ves el badge y podés confirmar a ojo. El fail-open (`??`) evita ocultar por error una vacante válida.
 
 ---
 
@@ -70,27 +72,33 @@ src/
   app.js              # orquestador: cola fetch silenciosa, caché y tagging (UMD)
 tools/
   build_userscript.js # bundler sin dependencias -> userscript/langjobs.user.js
+  build_extension.js  # bundler sin dependencias -> extension/content.js (Fase 2)
 userscript/
-  langjobs.user.js    # script v0.4.0 listo para Tampermonkey
+  langjobs.user.js    # script listo para Tampermonkey (generado desde src/)
+extension/
+  manifest.json       # Manifest V3 de la extensión Chrome
+  content.js          # content script (generado desde src/, Fase 2)
+  popup/              # UI de configuración (en construcción, Fase 2)
+  icons/              # íconos de la extensión
 tests/
-  corpus.js           # 20 casos de prueba del detector (100% aciertos)
+  corpus.js           # casos de prueba del detector
   run.js              # harness de consola (Node)
 ```
 
-La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensión Chrome (Fase 2).
+La fuente de verdad vive en `src/`. El mismo código se reutiliza en el userscript de Tampermonkey y en la extensión Chrome (Fase 2).
 
 ---
 
 ## 🚀 Estado del proyecto
 
-> 🏆 **Fase 1 completada al 100% (v0.4.0 — Versión de Oro).** El prototipo Tampermonkey clasifica y filtra vacantes con 100% de certeza y 0 errores mediante fetch silencioso y procesamiento en el DOM.
+> 🏗️ **Fase 1 completa (v0.5.2) y Fase 2 en desarrollo.** El prototipo Tampermonkey etiqueta y filtra vacantes por idioma; la extensión nativa Chrome (Manifest V3) está en construcción.
 
 | Fase | Estado |
 |---|---|
-| Planificación y arquitectura de 5 capas | ✅ Completa |
-| Repositorio y documentación de oro | ✅ Completa |
-| Prototipo Tampermonkey v0.4.0 (100% Acierto) | ✅ **100% Completa (v0.4.0)** |
-| Extensión Chrome (Manifest V3) | ⏳ Próxima fase |
+| Planificación y arquitectura | ✅ Completa |
+| Repositorio y documentación | ✅ Completa |
+| Prototipo Tampermonkey (Fase 1) | ✅ **Completa (v0.5.2)** |
+| Extensión Chrome MV3 (Fase 2) | 🔄 En curso (T2.1–T2.3 hechos; popup y publicación pendientes) |
 | Publicación en Chrome Web Store | ⏳ Pendiente |
 
 ### Instalación (Fase 1 — prototipo Tampermonkey)
@@ -112,19 +120,26 @@ La fuente de verdad vive en `src/`. El mismo código se reutiliza en la extensi�
 > - `mode`: `'label'` (solo badge, por defecto, para validar sin riesgo) · `'dim'` (atenuar las no deseadas) · `'hide'` (ocultar las no deseadas).
 > Las vacantes `unknown` **nunca** se ocultan (fail-open). Para cambiar el comportamiento, editá `CONFIG`, guardá y recargá la página.
 
-- **Fase 2:** extensión nativa para Chrome (modo desarrollador primero, luego Chrome Web Store)
+### Extensión Chrome (Fase 2 — modo desarrollador)
+
+1. `node tools/build_extension.js` genera `extension/content.js` desde `src/`.
+2. En `brave://extensions` (o `chrome://extensions`) activá *Modo desarrollador* y elegí *Cargar sin empaquetar* → seleccioná la carpeta `extension/`.
+3. Andá a `linkedin.com/jobs/`; el content script etiqueta las tarjetas automáticamente (modo `label` por defecto). El popup de configuración y la persistencia llegarán en T2.4/T2.5.
 
 ## 🗺️ Roadmap resumido
 
 - [x] Arquitectura, requisitos y estrategia de testing
 - [x] Repositorio y documentación
-- [x] **Fase 1 — Prototipo Tampermonkey** (en curso):
+- [x] **Fase 1 — Prototipo Tampermonkey** (completa, v0.5.2):
   - [x] T1.1 Stopwords ES/EN · [x] T1.2 Detector de idioma · [x] T1.3 Harness de tests
   - [x] T1.4 Inspección del DOM real · [x] T1.5 Selectores en capas · [x] T1.6 Userscript (solo etiquetar)
   - [x] T1.7 MutationObserver + debounce + hash idempotente · [x] T1.8 Modos ocultar/atenuar (CONFIG)
-  - [x] T1.9 Clasificación por panel de detalle (retro-etiquetado)
-  - [ ] T1.10 Prueba en navegador real · [ ] T1.11 Ajuste de listas/umbral
-- [ ] **Fase 2** — Extensión Chrome MV3: popup de configuración, storage local, publicación
+  - [x] T1.9 Clasificación por panel de detalle (retro-etiquetado) · [x] T1.10 Prueba en navegador real · [x] T1.11 Ajuste de listas/umbral
+- [ ] **Fase 2** — Extensión Chrome MV3:
+  - [x] T2.1 Estructura + manifest.json V3 · [x] T2.2 Módulos compartidos · [x] T2.3 Content script funcional
+  - [ ] T2.4 Popup de configuración · [ ] T2.5 Persistencia chrome.storage + reacción en vivo
+  - [ ] T2.6 Contador de vacantes filtradas · [ ] T2.7 Íconos y naming · [ ] T2.8 Beta personal (1 semana)
+  - [ ] T2.9 Cuenta de desarrollador · [ ] T2.10 Ficha de la tienda · [ ] T2.11 Envío a revisión
 - [ ] **Fase 3** — Modelo freemium (funciones avanzadas: más idiomas, whitelist de empresas)
 
 ## ⚖️ Aviso legal
