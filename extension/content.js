@@ -744,6 +744,7 @@
           data.description = selectors.cleanText(desc);
           data.lang = descLang;
           data.langSource = 'description';
+          if (data.jobId) FETCH_CACHE[data.jobId] = descLang;
         }
       }
     }
