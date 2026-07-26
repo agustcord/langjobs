@@ -7,13 +7,31 @@
 </head>
 <body>
   <header>
-    <h1>LangJobs</h1>
-    <p class="subtitle">Filtro de vacantes por idioma</p>
+    <div class="brand">
+      <span class="brand-mark">LJ</span>
+      <div>
+        <h1>LangJobs</h1>
+        <p class="subtitle">Filtro de vacantes por idioma</p>
+      </div>
+    </div>
   </header>
 
   <main>
-    <!-- T2.4 llena esto con: on/off global, idioma a mostrar, modo. -->
-    <p class="placeholder">Panel de configuración — pendiente (T2.4).</p>
+    <section class="toggle-row">
+      <div class="toggle-label">
+        <span class="toggle-title">Etiquetado activado</span>
+        <span class="toggle-hint">Muestra un badge ES / EN en cada vacante de LinkedIn.</span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="enabled" />
+        <span class="slider"></span>
+      </label>
+    </section>
+
+    <p class="note">
+      Las vacantes se etiquetan en <code>linkedin.com/jobs/</code>. El idioma que se
+      mantiene visible es <strong>español</strong>; las de inglés reciben badge <strong>EN</strong>.
+    </p>
   </main>
 
   <footer>
