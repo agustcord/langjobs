@@ -991,14 +991,74 @@
   // En un content script MV3 (world aislado) los archivos no comparten globals
   // entre si a menos que los fijemos en window; este bundle los concentra en
   // un solo script, así que los globals ya viven en window dentro de este IIFE.
-  // T2.3 leerá window.LangJobsApp para arrancar el observer con la config.
+  // El bootstrap de abajo lee window.LangJobsApp para arrancar el observer.
   if (typeof window !== 'undefined') {
     window.LangJobsApp = root.LangJobsApp;
     window.LangJobsStopwords = root.LangJobsStopwords;
     window.LangJobsDetector = root.LangJobsDetector;
     window.LangJobsSelectors = root.LangJobsSelectors;
   }
-  if (typeof console !== 'undefined' && console.log) {
-    console.log('[LangJobs] content script (build v0.5.2) — módulos cargados. T2.3=pendiente.');
-  }
+
+  // ── Bootstrap de la extensión (T2.3) ────────────────────────────────────
+  // Arranca el observer con la config de chrome.storage.local (o defaults).
+  // Prepara T2.5: reacciona en vivo a cambios de config sin recargar la página.
+  (function bootstrap() {
+    var DEFAULTS = { enabled: true, targetLang: 'es', mode: 'label' };
+    var state = {
+      enabled: DEFAULTS.enabled,
+      targetLang: DEFAULTS.targetLang,
+      mode: DEFAULTS.mode,
+    };
+    var handle = null;
+
+    function startObserving() {
+      if (!root.LangJobsApp || !root.LangJobsApp.observe) return;
+      if (handle && handle.disconnect) handle.disconnect();
+      if (typeof document === 'undefined') return;
+      handle = root.LangJobsApp.observe(document, { debounceMs: 150 });
+      if (typeof console !== 'undefined' && console.log) {
+        console.log('[LangJobs] observer activo (build v0.5.2).');
+      }
+    }
+    function stopObserving() {
+      if (handle && handle.disconnect) handle.disconnect();
+      handle = null;
+      if (typeof console !== 'undefined' && console.log) {
+        console.log('[LangJobs] observer detenido (deshabilitado).');
+      }
+    }
+
+    // Aplica un partial de config y arranca/detiene según 'enabled'.
+    function apply(partial) {
+      partial = partial || {};
+      if (typeof partial.enabled !== 'undefined') state.enabled = !!partial.enabled;
+      if (partial.targetLang) state.targetLang = partial.targetLang;
+      if (partial.mode) state.mode = partial.mode;
+      if (root.LangJobsApp && root.LangJobsApp.setConfig) {
+        root.LangJobsApp.setConfig({ targetLang: state.targetLang, mode: state.mode });
+      }
+      if (state.enabled) startObserving(); else stopObserving();
+    }
+
+    // Leer config de storage (async). Sin chrome.storage, usar defaults.
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(['enabled', 'targetLang', 'mode'], function (cfg) {
+        apply(cfg || {});
+      });
+    } else {
+      apply({});
+    }
+
+    // T2.5 (preparado): reaccionar en vivo a cambios de config sin recargar.
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener(function (changes, area) {
+        if (area !== 'local') return;
+        var partial = {};
+        if (changes.enabled) partial.enabled = changes.enabled.newValue;
+        if (changes.targetLang) partial.targetLang = changes.targetLang.newValue;
+        if (changes.mode) partial.mode = changes.mode.newValue;
+        if (partial.enabled !== undefined || partial.targetLang || partial.mode) apply(partial);
+      });
+    }
+  })();
 }).call(window);
