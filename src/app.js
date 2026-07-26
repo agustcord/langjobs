@@ -50,10 +50,14 @@
   function hashOf(card, doc) {
     const d = selectors.extractFromCard(card);
     let h = (d.jobId || '') + '|' + (d.title || '').slice(0, 60) + '|' + (d.company || '').slice(0, 60);
-    const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-    if (document && selectors.getActiveJobId && selectors.getActiveJobId(document) === d.jobId) {
-      const desc = selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
-      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
+    if (d.jobId && FETCH_CACHE[d.jobId]) {
+      h += '|CACHE:' + FETCH_CACHE[d.jobId];
+    } else {
+      const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      if (document && selectors.getActiveJobId && selectors.getActiveJobId(document) === d.jobId) {
+        const desc = selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
+        if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
+      }
     }
     return h;
   }

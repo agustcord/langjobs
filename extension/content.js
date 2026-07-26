@@ -426,7 +426,19 @@
   }
 
   function jobIdFromCard(card) {
-    return (card.getAttribute && card.getAttribute('data-job-id')) || '';
+    if (!card) return '';
+    if (card.getAttribute && card.getAttribute('data-job-id')) {
+      return card.getAttribute('data-job-id');
+    }
+    const child = card.querySelector && card.querySelector('[data-job-id]');
+    if (child && child.getAttribute && child.getAttribute('data-job-id')) {
+      return child.getAttribute('data-job-id');
+    }
+    const parent = card.closest && card.closest('[data-job-id]');
+    if (parent && parent.getAttribute && parent.getAttribute('data-job-id')) {
+      return parent.getAttribute('data-job-id');
+    }
+    return '';
   }
 
   // Descripción: capa estructural (p[dir="ltr"], #job-details, .jobs-description__content, etc.)
@@ -648,10 +660,14 @@
   function hashOf(card, doc) {
     const d = selectors.extractFromCard(card);
     let h = (d.jobId || '') + '|' + (d.title || '').slice(0, 60) + '|' + (d.company || '').slice(0, 60);
-    const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-    if (document && selectors.getActiveJobId && selectors.getActiveJobId(document) === d.jobId) {
-      const desc = selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
-      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
+    if (d.jobId && FETCH_CACHE[d.jobId]) {
+      h += '|CACHE:' + FETCH_CACHE[d.jobId];
+    } else {
+      const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      if (document && selectors.getActiveJobId && selectors.getActiveJobId(document) === d.jobId) {
+        const desc = selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
+        if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
+      }
     }
     return h;
   }

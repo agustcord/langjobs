@@ -80,7 +80,19 @@
   }
 
   function jobIdFromCard(card) {
-    return (card.getAttribute && card.getAttribute('data-job-id')) || '';
+    if (!card) return '';
+    if (card.getAttribute && card.getAttribute('data-job-id')) {
+      return card.getAttribute('data-job-id');
+    }
+    const child = card.querySelector && card.querySelector('[data-job-id]');
+    if (child && child.getAttribute && child.getAttribute('data-job-id')) {
+      return child.getAttribute('data-job-id');
+    }
+    const parent = card.closest && card.closest('[data-job-id]');
+    if (parent && parent.getAttribute && parent.getAttribute('data-job-id')) {
+      return parent.getAttribute('data-job-id');
+    }
+    return '';
   }
 
   // Descripción: capa estructural (p[dir="ltr"], #job-details, .jobs-description__content, etc.)
