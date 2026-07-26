@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- LangJobs icon — ALT variant: blue tile (brand), white open quote + green close quote -->
+  <rect x="16" y="16" width="480" height="480" rx="104" ry="104" fill="#0a66c2"/>
+
+  <!-- Opening double quote (66) — top-left, white -->
+  <g fill="#ffffff">
+    <path d="M 96,150 Q 96,96 150,96 Q 204,96 204,150 Q 204,198 158,200 Q 168,232 122,242 L 116,210 Q 84,206 96,150 Z"/>
+    <path d="M 196,150 Q 196,104 244,104 Q 292,104 292,150 Q 292,192 252,198 Q 262,228 220,238 L 214,208 Q 184,204 196,150 Z"/>
+  </g>
+
+  <!-- Closing double quote (99) — bottom-right, green -->
+  <g fill="#057642">
+    <path d="M 416,362 Q 416,416 362,416 Q 308,416 308,362 Q 308,314 354,312 Q 344,280 390,270 L 396,302 Q 428,306 416,362 Z"/>
+    <path d="M 316,362 Q 316,408 268,408 Q 220,408 220,362 Q 220,320 260,314 Q 250,284 292,274 L 298,304 Q 328,308 316,362 Z"/>
+  </g>
+</svg>

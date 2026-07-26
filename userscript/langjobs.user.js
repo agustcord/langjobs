@@ -626,17 +626,15 @@
 
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    let match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-                htmlString.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-    let rawText = match ? match[1] : htmlString;
-    let cleaned = cleanText(rawText.replace(/<[^>]+>/g, ' '));
-    if (cleaned.length < 50 && match) {
-      cleaned = cleanText(htmlString.replace(/<[^>]+>/g, ' '));
-    }
+    const match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/article>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/main>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    if (!match) return '';
+    const cleaned = cleanText(match[1].replace(/<[^>]+>/g, ' '));
+    if (cleaned.length < 50) return '';
     return cleaned;
   }
 
@@ -794,26 +792,7 @@
 
     _dbg('classify', { jobId: data.jobId, title: data.title, company: data.company, modality: data.modality });
 
-    if (data.jobId && FETCH_CACHE[data.jobId]) {
-      data.lang = FETCH_CACHE[data.jobId];
-      data.langSource = 'async-fetch';
-      _dbg('  → FETCH_CACHE hit:', data.lang);
-      return data;
-    }
-
-    const detInput = (data.title || '') + ' ' + (data.company || '');
-    const detRes = detector.detectLanguage(detInput, { modality: data.modality });
-    data.lang = detRes.lang;
-    data.isAmbiguous = detRes.isAmbiguous || false;
-
-    _dbg('  → detectLanguage:', { input: detInput.slice(0, 80), lang: detRes.lang, isAmbiguous: !!detRes.isAmbiguous, hitsEs: detRes.hitsEs, hitsEn: detRes.hitsEn, accentHits: detRes.accentHits });
-
-    if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
-      const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-      _dbg('  → fetchJobDetail dispatched for jobId:', data.jobId);
-      fetchJobDetail(data.jobId, card, document);
-    }
-
+    // 1. Capa primordial: Si la tarjeta es la activa y el DOM tiene el panel de detalle abierto, usar esa descripción (máxima prioridad)
     if (typeof getDescription === 'function') {
       const desc = getDescription(data.jobId, card) || '';
       if (desc && desc.trim()) {
@@ -827,11 +806,33 @@
           data.langSource = 'description';
           if (data.jobId) FETCH_CACHE[data.jobId] = descRes.lang;
           _dbg('  → FINAL from description:', data.lang, '(FETCH_CACHE set)');
+          return data;
         }
-      } else {
-        _dbg('  → getDescription: empty (card not active or no panel)');
       }
     }
+
+    // 2. Capa de caché en memoria de fetch previa
+    if (data.jobId && FETCH_CACHE[data.jobId]) {
+      data.lang = FETCH_CACHE[data.jobId];
+      data.langSource = 'async-fetch';
+      _dbg('  → FETCH_CACHE hit:', data.lang);
+      return data;
+    }
+
+    // 3. Capa de detección por título + empresa + modalidad
+    const detInput = (data.title || '') + ' ' + (data.company || '');
+    const detRes = detector.detectLanguage(detInput, { modality: data.modality });
+    data.lang = detRes.lang;
+    data.isAmbiguous = detRes.isAmbiguous || false;
+
+    _dbg('  → detectLanguage:', { input: detInput.slice(0, 80), lang: detRes.lang, isAmbiguous: !!detRes.isAmbiguous, hitsEs: detRes.hitsEs, hitsEn: detRes.hitsEn, accentHits: detRes.accentHits });
+
+    if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
+      const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+      _dbg('  → fetchJobDetail dispatched for jobId:', data.jobId);
+      fetchJobDetail(data.jobId, card, document);
+    }
+
     return data;
   }
 

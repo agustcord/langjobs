@@ -268,17 +268,15 @@
 
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    let match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
-                htmlString.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-    let rawText = match ? match[1] : htmlString;
-    let cleaned = cleanText(rawText.replace(/<[^>]+>/g, ' '));
-    if (cleaned.length < 50 && match) {
-      cleaned = cleanText(htmlString.replace(/<[^>]+>/g, ' '));
-    }
+    const match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/article>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/main>/i) ||
+                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    if (!match) return '';
+    const cleaned = cleanText(match[1].replace(/<[^>]+>/g, ' '));
+    if (cleaned.length < 50) return '';
     return cleaned;
   }
 
