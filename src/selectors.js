@@ -151,8 +151,10 @@
                  root.querySelector('[aria-current="true"]') ||
                  root.querySelector('.jobs-search-results-list__list-item--active [data-job-id]') ||
                  root.querySelector('.job-card-container--active [data-job-id]') ||
+                 root.querySelector('.job-card-list--active [data-job-id]') ||
                  root.querySelector('.jobs-search-results-list__list-item--active') ||
-                 root.querySelector('.job-card-container--active');
+                 root.querySelector('.job-card-container--active') ||
+                 root.querySelector('.job-card-list--active');
     if (!active) return null;
     if (active.getAttribute && active.getAttribute('data-job-id')) {
       return active.getAttribute('data-job-id');

@@ -115,19 +115,18 @@
     const hint = roleHint(tokens);
 
     // Regla de Oro de Diacríticos y Roles en Español (v0.4.3):
-    // Si el texto contiene tildes/ñ (ej: "Líder", "Selección") o un rol en español (ej: "Lider", "Jefe", "Soporte")
+    // Si el texto contiene roles en español (ej: "Lider", "Jefe", "Soporte") o tildes (y NO es un rol de inglés),
     // y la señal de stopwords de inglés es débil (hitsEn <= 1, ej. la sigla "IT"), es 100% ESPAÑOL.
-    if ((accentHits >= 1 || hint === 'es') && hitsEn <= 1) {
+    if ((hint === 'es' || (accentHits >= 1 && hint !== 'en')) && hitsEn <= 1) {
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
     // Heurística de modalidad (v0.4.4 - Opción B):
-    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en')
-    // sin tildes en español (accentHits === 0) y con señal débil de español (hitsEs <= 1 por conectores de UI como "en"/"de"),
+    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en'),
     // marcar como ambiguo (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso
-    // y resuelva con la descripción completa a 100% (ej: Caso Fever "Senior Video Editor en Fever").
+    // o el retro-etiquetado y resuelva con la descripción completa a 100% (ej: "Senior Software Engineer").
     const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
-                        hint === 'en' && hitsEs <= 1 && accentHits === 0;
+                        hint === 'en' && hitsEs <= 2;
 
     if (isAmbiguous) {
       return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
