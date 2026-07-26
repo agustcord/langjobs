@@ -72,8 +72,14 @@ const FOOTER = `
     function stopObserving() {
       if (handle && handle.disconnect) handle.disconnect();
       handle = null;
+      // T2.4 FIX: al desactivar, el observer se detiene pero los badges ya
+      // inyectados deben borrarse del DOM para que el switch 'off' tenga
+      // efecto visible de inmediato.
+      if (root.LangJobsApp && root.LangJobsApp.clearAll && typeof document !== 'undefined') {
+        try { root.LangJobsApp.clearAll(document); } catch (e) {}
+      }
       if (typeof console !== 'undefined' && console.log) {
-        console.log('[LangJobs] observer detenido (deshabilitado).');
+        console.log('[LangJobs] observer detenido y badges limpiados (deshabilitado).');
       }
     }
 

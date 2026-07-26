@@ -335,6 +335,36 @@
     return Object.assign({}, CONFIG);
   }
 
+  // ── Limpieza total: quita badges y marcas de todas las tarjetas (T2.3+ T2.4) ──
+  // Al desactivar el etiquetado desde el popup, el MutationObserver se detiene
+  // (no se agregan nuevos badges) pero los ya inyectados deben borrarse del DOM;
+  // de lo contrario el switch "off" no produce efecto visible. clearAll se
+  // encarga de eso y limpia data-llf-lang/hash para una reactivación limpia.
+  function clearAll(root, opts) {
+    opts = opts || {};
+    const document = root || (typeof document !== 'undefined' ? document : null);
+    if (!document || !document.querySelectorAll) return 0;
+
+    const badges = document.querySelectorAll('.llf-badge');
+    const list = Array.prototype.slice.call(badges);
+    list.forEach(function (b) {
+      if (b.remove) b.remove();
+      else if (b.parentNode && b.parentNode.removeChild) b.parentNode.removeChild(b);
+    });
+
+    const cards = document.querySelectorAll('[data-job-id]');
+    Array.prototype.slice.call(cards).forEach(function (card) {
+      if (!isJobCardContainer(card)) return;
+      if (card.removeAttribute) {
+        card.removeAttribute('data-llf-lang');
+        card.removeAttribute('data-llf-hash');
+      }
+      if (card.classList) card.classList.remove(CLS.hidden, CLS.dim);
+      if (card.style && card.style.removeProperty) card.style.removeProperty('display');
+    });
+    return list.length;
+  }
+
   // ── Punto de entrada inicial (retrocompatible con T1.6) ─────────────────────
   function run(doc, opts) {
     return processAll(doc || (typeof document !== 'undefined' ? document : null), opts);
@@ -396,6 +426,7 @@
     applyAction: applyAction,
     isUndesired: isUndesired,
     setConfig: setConfig,
+    clearAll: clearAll,
     classify: classify,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
