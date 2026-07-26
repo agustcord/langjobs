@@ -237,6 +237,7 @@
     'lead', 'tech', 'writer', 'copywriter', 'pricing', 'researcher', 'founder', 'strategist', 'support', 'success', 'growth',
     'editor', 'designer', 'motion', 'video', 'product',
     'software', 'architect', 'contractor', 'system', 'systems', 'data', 'cloud', 'devops', 'fullstack', 'backend', 'frontend', 'ai',
+    'customer', 'service', 'account', 'creative', 'media', 'buyer', 'content',
   ]);
 
   function roleHint(tokens) {
@@ -313,17 +314,17 @@
     }
 
     // Heurística de modalidad (v0.4.4 - Opción B):
-    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en'),
+    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en' o hitsEn > 0),
     // marcar como ambiguo (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso
     // o el retro-etiquetado y resuelva con la descripción completa a 100% (ej: "Senior Software Engineer").
     const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
-                        hint === 'en' && hitsEs <= 2;
+                        (hint === 'en' || (hitsEn > 0 && hint !== 'es'));
 
     if (isAmbiguous) {
       return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
-    if ((opts.modality === 'hibrido' || opts.modality === 'presencial') && hitsEn <= 1) {
+    if ((opts.modality === 'hibrido' || opts.modality === 'presencial') && (hint === 'es' || hitsEs > hitsEn)) {
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
@@ -452,23 +453,56 @@
     return '';
   }
 
-  // Descripción: capa estructural (p[dir="ltr"], #job-details, .jobs-description__content, etc.)
+  // Descripción: capa estructural (#job-details, .jobs-description__content, etc.)
   function descriptionFromDetail(detailRoot) {
     if (!detailRoot || !detailRoot.querySelector) return '';
-    const exact = detailRoot.querySelector('p[dir="ltr"]') ||
-                  detailRoot.querySelector('[dir="ltr"]') ||
-                  detailRoot.querySelector('#job-details') ||
+
+    // 1. Capa primordial: buscar específicamente el contenedor del cuerpo de la vacante.
+    let container = null;
+    const isDescNode = function (node) {
+      if (!node) return false;
+      if (node.id === 'job-details') return true;
+      if (node.matches && node.matches('#job-details, .jobs-description__content, .jobs-description-content__text, .jobs-box__html-content, .jobs-description')) return true;
+      const c = (typeof node.className === 'string') ? node.className : (node.getAttribute ? node.getAttribute('class') || '' : '');
+      if (c.includes('jobs-description') || c.includes('jobs-box__html-content')) return true;
+      return false;
+    };
+
+    if (isDescNode(detailRoot)) {
+      container = detailRoot;
+    } else {
+      container = detailRoot.querySelector('#job-details') ||
                   detailRoot.querySelector('.jobs-description__content') ||
                   detailRoot.querySelector('.jobs-description-content__text') ||
                   detailRoot.querySelector('.jobs-box__html-content') ||
-                  detailRoot.querySelector('.mt4');
-    if (exact && exact.textContent && exact.textContent.trim()) return exact.textContent;
-    // Heurística: máxima densidad de texto entre elementos contenedores.
+                  detailRoot.querySelector('.jobs-description');
+    }
+
+    if (container && container.textContent && container.textContent.trim()) {
+      return container.textContent;
+    }
+
+    // 2. Si no hay contenedor explícito #job-details, buscar elementos dentro de detailRoot,
+    // pero EXCLUYENDO cualquier sub-árbol que pertenezca a la cabecera top-card.
+    const candidates = detailRoot.querySelectorAll ? detailRoot.querySelectorAll('p[dir="ltr"], [dir="ltr"], .mt4') : [];
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i];
+      if (cand.closest && cand.closest('.jobs-unified-top-card, .jobs-details__top-card, .jobs-unified-top-card__content')) {
+        continue; // Ignorar metadatos de UI de la cabecera (ej: "Promocionado por técnico de selección")
+      }
+      const text = (cand.textContent || '').trim();
+      if (text.length > 30) {
+        return text;
+      }
+    }
+
+    // 3. Heurística: máxima densidad de texto excluyendo top-card.
     let best = '';
     let bestLen = 0;
     const children = detailRoot.querySelectorAll ? detailRoot.querySelectorAll('div, section, article') : [];
     for (let i = 0; i < children.length; i++) {
       const child = children[i];
+      if (child.closest && child.closest('.jobs-unified-top-card, .jobs-details__top-card, .jobs-unified-top-card__content')) continue;
       const t = (child.textContent || '').trim();
       if (t.length > bestLen) { bestLen = t.length; best = t; }
     }
@@ -522,18 +556,14 @@
     if (!root || !root.querySelector) return null;
     let active = root.querySelector('[aria-current="page"]') ||
                  root.querySelector('[aria-current="true"]') ||
-                 root.querySelector('.jobs-search-results-list__list-item--active [data-job-id]') ||
-                 root.querySelector('.job-card-container--active [data-job-id]') ||
-                 root.querySelector('.job-card-list--active [data-job-id]') ||
                  root.querySelector('.jobs-search-results-list__list-item--active') ||
                  root.querySelector('.job-card-container--active') ||
-                 root.querySelector('.job-card-list--active');
+                 root.querySelector('.job-card-list--active') ||
+                 root.querySelector('.jobs-search-results-list__list-item[class*="active"]') ||
+                 root.querySelector('.job-card-container[class*="active"]') ||
+                 root.querySelector('.job-card-list[class*="active"]');
     if (!active) return null;
-    if (active.getAttribute && active.getAttribute('data-job-id')) {
-      return active.getAttribute('data-job-id');
-    }
-    const child = active.querySelector && active.querySelector('[data-job-id]');
-    return child && child.getAttribute ? child.getAttribute('data-job-id') : null;
+    return jobIdFromCard(active);
   }
 
   // Texto del panel de detalle (columna derecha) para la vacante activa.
@@ -596,13 +626,18 @@
 
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    let match = htmlString.match(/<div[^>]*class="[^"]*mt4[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+    let match = htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+                htmlString.match(/<div[^>]*class="[^"]*description[^\"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
                 htmlString.match(/<article[^>]*>([\s\S]*?)<\/article>/i) ||
                 htmlString.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
     let rawText = match ? match[1] : htmlString;
-    let cleaned = rawText.replace(/<[^>]+>/g, ' ');
-    return cleanText(cleaned);
+    let cleaned = cleanText(rawText.replace(/<[^>]+>/g, ' '));
+    if (cleaned.length < 50 && match) {
+      cleaned = cleanText(htmlString.replace(/<[^>]+>/g, ' '));
+    }
+    return cleaned;
   }
 
   return {
@@ -757,6 +792,7 @@
 
     const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
     data.lang = detRes.lang;
+    data.isAmbiguous = detRes.isAmbiguous || false;
 
     if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
       const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
@@ -770,6 +806,7 @@
         if (descLang === 'es' || descLang === 'en') {
           data.description = selectors.cleanText(desc);
           data.lang = descLang;
+          data.isAmbiguous = false;
           data.langSource = 'description';
           if (data.jobId) FETCH_CACHE[data.jobId] = descLang;
         }
@@ -901,7 +938,10 @@
         if (card.setAttribute) card.setAttribute('data-llf-lang', '');
       }
       data = tagCard(card, getDescription, doc, opts);
-      if (data.lang === 'unknown' && (prevLang === 'es' || prevLang === 'en')) {
+      // Solo congelar el idioma previo si el resultado actual es 'unknown' SIN ser
+      // una tarjeta ambigua (isAmbiguous). Si es ambigua, hay un fetch en vuelo que
+      // la resolverá — no pisar el '??' con el ES/EN anterior incorrecto.
+      if (data.lang === 'unknown' && !data.isAmbiguous && (prevLang === 'es' || prevLang === 'en')) {
         data.lang = prevLang;
       }
       if (card.setAttribute) card.setAttribute('data-llf-hash', h);

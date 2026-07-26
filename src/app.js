@@ -136,6 +136,7 @@
 
     const detRes = detector.detectLanguage((data.title || '') + ' ' + (data.company || ''), { modality: data.modality });
     data.lang = detRes.lang;
+    data.isAmbiguous = detRes.isAmbiguous || false;
 
     if ((data.lang === 'unknown' || detRes.isAmbiguous) && data.jobId) {
       const document = (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
@@ -149,6 +150,7 @@
         if (descLang === 'es' || descLang === 'en') {
           data.description = selectors.cleanText(desc);
           data.lang = descLang;
+          data.isAmbiguous = false;
           data.langSource = 'description';
           if (data.jobId) FETCH_CACHE[data.jobId] = descLang;
         }
@@ -280,7 +282,10 @@
         if (card.setAttribute) card.setAttribute('data-llf-lang', '');
       }
       data = tagCard(card, getDescription, doc, opts);
-      if (data.lang === 'unknown' && (prevLang === 'es' || prevLang === 'en')) {
+      // Solo congelar el idioma previo si el resultado actual es 'unknown' SIN ser
+      // una tarjeta ambigua (isAmbiguous). Si es ambigua, hay un fetch en vuelo que
+      // la resolverá — no pisar el '??' con el ES/EN anterior incorrecto.
+      if (data.lang === 'unknown' && !data.isAmbiguous && (prevLang === 'es' || prevLang === 'en')) {
         data.lang = prevLang;
       }
       if (card.setAttribute) card.setAttribute('data-llf-hash', h);
