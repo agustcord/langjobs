@@ -90,9 +90,9 @@
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
       var tab = tabs && tabs[0];
       if (!tab || tab.id == null) { if (isEnabled) showNoPageNote(); else showDisabledNote(); return; }
-      if (typeof chrome.runtime === 'undefined' || !chrome.runtime.sendMessage) { if (isEnabled) showNoPageNote(); else showDisabledNote(); return; }
+      if (!chrome.tabs.sendMessage) { if (isEnabled) showNoPageNote(); else showDisabledNote(); return; }
       try {
-        chrome.runtime.sendMessage(tab.id, { type: 'LJF_COUNT' }, function (resp) {
+        chrome.tabs.sendMessage(tab.id, { type: 'LJF_COUNT' }, function (resp) {
           if (chrome.runtime.lastError || !resp) {
             if (isEnabled) showNoPageNote(); else showDisabledNote();
             return;
