@@ -83,19 +83,23 @@
     return (card.getAttribute && card.getAttribute('data-job-id')) || '';
   }
 
-  // Descripción: capa estructural (.mt4 > p[dir="ltr"]), luego .mt4, luego
-  // heurística (nodo con más texto en el root de detalle).
+  // Descripción: capa estructural (p[dir="ltr"], #job-details, .jobs-description__content, etc.)
   function descriptionFromDetail(detailRoot) {
     if (!detailRoot || !detailRoot.querySelector) return '';
-    const exact = detailRoot.querySelector('.mt4 > p[dir="ltr"]');
+    const exact = detailRoot.querySelector('p[dir="ltr"]') ||
+                  detailRoot.querySelector('[dir="ltr"]') ||
+                  detailRoot.querySelector('#job-details') ||
+                  detailRoot.querySelector('.jobs-description__content') ||
+                  detailRoot.querySelector('.jobs-description-content__text') ||
+                  detailRoot.querySelector('.jobs-box__html-content') ||
+                  detailRoot.querySelector('.mt4');
     if (exact && exact.textContent && exact.textContent.trim()) return exact.textContent;
-    const mt4 = detailRoot.querySelector('.mt4');
-    if (mt4 && mt4.textContent && mt4.textContent.trim()) return mt4.textContent;
-    // Heurística: máxima densidad de texto entre hijos directos.
+    // Heurística: máxima densidad de texto entre elementos contenedores.
     let best = '';
     let bestLen = 0;
-    const children = detailRoot.children || [];
-    for (const child of children) {
+    const children = detailRoot.querySelectorAll ? detailRoot.querySelectorAll('div, section, article') : [];
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
       const t = (child.textContent || '').trim();
       if (t.length > bestLen) { bestLen = t.length; best = t; }
     }
@@ -167,8 +171,12 @@
   // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
   function getDetailDescription(root) {
     if (!root || !root.querySelector) return '';
-    let detailRoot = root.querySelector('.jobs-details__main-content') ||
+    let detailRoot = root.querySelector('#job-details') ||
+                     root.querySelector('.jobs-description') ||
+                     root.querySelector('.jobs-description__content') ||
+                     root.querySelector('.jobs-details__main-content') ||
                      root.querySelector('.jobs-details') ||
+                     root.querySelector('.jobs-search-two-pane__job-details') ||
                      root.querySelector('main');
     return descriptionFromDetail(detailRoot || root);
   }
