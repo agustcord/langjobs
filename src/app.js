@@ -382,6 +382,14 @@
 
     function flush() {
       timer = null;
+      // Si el contexto de la extensión fue invalidado (ej: recargar la extensión en chrome://extensions),
+      // desconectar el observer antiguo para no inundar la consola con errores de recurso inválido.
+      try {
+        if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.id === 'undefined') {
+          if (observer && observer.disconnect) observer.disconnect();
+          return;
+        }
+      } catch (e) {}
       processAll(root, opts);
     }
     function schedule() {

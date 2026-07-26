@@ -382,15 +382,24 @@
   // del <a>, dentro de un <strong>, o como aria-label (solo la tarjeta activa).
   // Por eso leemos textContent como respaldo principal, no solo <strong>.
   function titleFromCard(card) {
-    let link = card.querySelector && card.querySelector('a.job-card-list__title--link');
-    if (!link) link = card.querySelector && card.querySelector('a[aria-label]');
+    if (!card || !card.querySelector) return '';
+    const link = card.querySelector('a.job-card-list__title--link') ||
+                 card.querySelector('a.job-card-container__link') ||
+                 card.querySelector('.job-card-list__title') ||
+                 card.querySelector('.job-card-container__title') ||
+                 card.querySelector('.artdeco-entity-lockup__title') ||
+                 card.querySelector('a[aria-label]');
     if (link) {
       const t = (link.textContent || '').replace(/\s+/g, ' ').trim();
       if (t) return t;
       const aria = link.getAttribute && link.getAttribute('aria-label');
       if (aria && aria.trim()) return aria.trim();
     }
-    const anyA = card.querySelector && card.querySelector('a');
+    const strong = card.querySelector('strong');
+    if (strong && strong.textContent && strong.textContent.trim()) {
+      return strong.textContent.replace(/\s+/g, ' ').trim();
+    }
+    const anyA = card.querySelector('a');
     if (anyA) {
       const t = (anyA.textContent || '').replace(/\s+/g, ' ').trim();
       if (t) return t;
@@ -962,6 +971,14 @@
 
     function flush() {
       timer = null;
+      // Si el contexto de la extensión fue invalidado (ej: recargar la extensión en chrome://extensions),
+      // desconectar el observer antiguo para no inundar la consola con errores de recurso inválido.
+      try {
+        if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.id === 'undefined') {
+          if (observer && observer.disconnect) observer.disconnect();
+          return;
+        }
+      } catch (e) {}
       processAll(root, opts);
     }
     function schedule() {
