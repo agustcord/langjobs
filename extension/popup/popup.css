@@ -1,4 +1,4 @@
-/* LangJobs — estilos del popup (T2.4) */
+/* LangJobs — estilos del popup (T2.4 + T2.6) */
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
@@ -53,6 +53,32 @@ main { padding: 16px; }
 }
 .switch input:checked + .slider { background: #0a66c2; }
 .switch input:checked + .slider::before { transform: translateX(18px); }
+
+/* Stats (T2.6) */
+.stats {
+  margin-top: 16px;
+  border: 1px solid #e6e6e6;
+  border-radius: 10px;
+  padding: 12px;
+}
+.stats-title { margin: 0 0 10px; font-size: 12px; font-weight: 600; color: #1d2226; }
+.stats-grid { display: flex; gap: 8px; }
+.stat {
+  flex: 1;
+  text-align: center;
+  border-radius: 8px;
+  padding: 8px 4px;
+  background: #f3f6fb;
+}
+.stat-num { display: block; font-size: 20px; font-weight: 800; line-height: 1.1; }
+.stat-label { display: block; margin-top: 2px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+.stat-es .stat-num { color: #0a66c2; }
+.stat-es .stat-label { color: #0a66c2; }
+.stat-en .stat-num { color: #57a37e; }
+.stat-en .stat-label { color: #57a37e; }
+.stat-unknown .stat-num { color: #8c8c8c; }
+.stat-unknown .stat-label { color: #8c8c8c; }
+.stats-note { margin: 10px 0 0; font-size: 10px; color: #9aa4b2; line-height: 1.4; }
 
 .note {
   margin: 16px 0 0;

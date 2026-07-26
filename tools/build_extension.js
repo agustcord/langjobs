@@ -115,6 +115,25 @@ const FOOTER = `
         if (partial.enabled !== undefined || partial.targetLang || partial.mode) apply(partial);
       });
     }
+
+    // T2.6: responder el conteo de etiquetas al popup bajo demanda (sin compartir memoria).
+    // El popup envía { type: 'LJF_COUNT' } y recibe { es, en, unknown }.
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+        if (!msg || msg.type !== 'LJF_COUNT') return;
+        var counts = { es: 0, en: 0, unknown: 0 };
+        if (state.enabled && typeof document !== 'undefined' && document.querySelectorAll) {
+          var nodes = document.querySelectorAll('[data-job-id]');
+          for (var i = 0; i < nodes.length; i++) {
+            var lang = nodes[i].getAttribute && nodes[i].getAttribute('data-llf-lang');
+            if (lang === 'es') counts.es++;
+            else if (lang === 'en') counts.en++;
+            else if (lang === 'unknown') counts.unknown++;
+          }
+        }
+        sendResponse(counts);
+      });
+    }
   })();
 }).call(window);
 `;
