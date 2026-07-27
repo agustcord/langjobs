@@ -15,5 +15,48 @@
       "enCount": 6,
       "unknownCount": 1
     }
+  },
+  {
+    "jobId": "4445963104",
+    "title": "Customer Experience Guru - Argentina",
+    "company": "Tiendanube",
+    "modality": "remoto",
+    "badgedLang": "en",
+    "expectedLang": "es",
+    "descriptionSnippet": "Acerca del empleo Nuestro equipo de Customer ExperienceLa misión del equipo de Customer Experience es ayudar y acompañar a emprendedores y grandes marcas de Latinoamérica a vender online y transformar sus sueños en historias que trascienden, ofreciendo un servicio de calidad fuera de serie, convirti"
+  },
+  {
+    "jobId": "4445150411",
+    "title": "Creador de Contenidos",
+    "company": "Vintti",
+    "modality": "remoto",
+    "badgedLang": "es",
+    "expectedLang": "en",
+    "descriptionSnippet": "Acerca del empleo Location: Latin America (100% Remote)Schedule: Full-time🌟 About our clientOur client is a financial operations firm built exclusively for Food & Beverage CPG founders — think craft beverage startups, emerging snack brands, and fast-scaling consumer goods companies. They handle acc",
+    "timestamp": "2026-07-27T20:45:48.663Z",
+    "url": "https://www.linkedin.com/jobs/search/?currentJobId=4445150411&f_TPR=r86400&geoId=102445502&origin=JOB_SEARCH_PAGE_JOB_FILTER",
+    "pageStatsAtReport": {
+      "totalCards": 27,
+      "esCount": 7,
+      "enCount": 18,
+      "unknownCount": 0
+    }
+  },
+  {
+    "jobId": "4442871368",
+    "title": "Product Manager Senior",
+    "company": "ACTIF TalentXperts",
+    "modality": "remoto",
+    "badgedLang": "en",
+    "expectedLang": "es",
+    "descriptionSnippet": "Acerca del empleo 🚀 Buscamos Product Manager SeniorDesde ACTIF Talentxpert acompañamos a Tecnom que se encuentra en pleno crecimiento regional en la búsqueda de un/a Product Manager Senior para sumarse a su equipo de Producto.Estamos buscando una persona con verdadera mentalidad de producto, que ha",
+    "timestamp": "2026-07-27T20:48:54.628Z",
+    "url": "https://www.linkedin.com/jobs/search/?currentJobId=4442871368&f_TPR=r86400&geoId=102445502&origin=JOB_SEARCH_PAGE_JOB_FILTER&start=25",
+    "pageStatsAtReport": {
+      "totalCards": 25,
+      "esCount": 5,
+      "enCount": 20,
+      "unknownCount": 0
+    }
   }
 ]
