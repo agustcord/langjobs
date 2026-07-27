@@ -1020,15 +1020,42 @@
             const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc, pageStats, extraMeta) : {};
             const jsonStr = JSON.stringify(fixture, null, 2);
 
-            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-              navigator.clipboard.writeText(jsonStr).then(function () {
-                reporterBtn.textContent = '✅';
-                setTimeout(function () { reporterBtn.textContent = '⚠️'; }, 1500);
-              }).catch(function () {
-                if (typeof prompt !== 'undefined') prompt('Copia el JSON Fixture de feedback:', jsonStr);
+            function copyToClipboardFallback(text, btn) {
+              if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () {
+                  if (btn) {
+                    btn.textContent = '📋';
+                    setTimeout(function () { btn.textContent = '⚠️'; }, 1500);
+                  }
+                }).catch(function () {
+                  if (typeof prompt !== 'undefined') prompt('Copia el JSON Fixture de feedback:', text);
+                });
+              } else if (typeof prompt !== 'undefined') {
+                prompt('Copia el JSON Fixture de feedback:', text);
+              }
+            }
+
+            // Envío directo al servidor local de reportes (http://localhost:3100/report)
+            if (typeof fetch === 'function') {
+              fetch('http://localhost:3100/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: jsonStr,
+              })
+              .then(function (res) {
+                if (res.ok) {
+                  reporterBtn.textContent = '✅';
+                  setTimeout(function () { reporterBtn.textContent = '⚠️'; }, 1500);
+                } else {
+                  copyToClipboardFallback(jsonStr, reporterBtn);
+                }
+              })
+              .catch(function () {
+                // Servidor local aparente no activo: fallback automático a portapapeles
+                copyToClipboardFallback(jsonStr, reporterBtn);
               });
-            } else if (typeof prompt !== 'undefined') {
-              prompt('Copia el JSON Fixture de feedback:', jsonStr);
+            } else {
+              copyToClipboardFallback(jsonStr, reporterBtn);
             }
           });
         }
