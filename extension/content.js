@@ -302,12 +302,13 @@
       return { lang: 'es', scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
     }
 
-    // Heurística de modalidad (v0.4.4 - Opción B):
-    // Si el puesto tiene modalidad Híbrido o Presencial pero el título es un rol en inglés (hint === 'en' o hitsEn > 0),
-    // marcar como ambiguo (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso
-    // o el retro-etiquetado y resuelva con la descripción completa a 100% (ej: "Senior Software Engineer").
-    const isAmbiguous = (opts.modality === 'hibrido' || opts.modality === 'presencial') &&
-                        (hint === 'en' || (hitsEn > 0 && hint !== 'es'));
+    // Heurística de ambigüedad (v0.5.3):
+    // 1) Si el puesto tiene modalidad Híbrido o Presencial y título con rol EN o palabras EN.
+    // 2) O si NO es explícitamente remoto y el texto es corto (<= 15 tokens) sin stopwords funcionales (hitsEs === 0 && hitsEn === 0) ni tildes.
+    // En estos casos no se puede saber el idioma del cuerpo del aviso solo por el título; marcar como ambiguo
+    // (isAmbiguous: true, lang: 'unknown') para que la Capa 4 haga el fetch silencioso o retro-etiquetado.
+    const isAmbiguous = ((opts.modality === 'hibrido' || opts.modality === 'presencial') && (hint === 'en' || (hitsEn > 0 && hint !== 'es'))) ||
+                        (opts.modality !== 'remoto' && totalTokens <= 15 && hitsEs === 0 && hitsEn === 0 && accentHits === 0 && (hint === 'en' || (hitsEn > 0 && hint !== 'es')));
 
     if (isAmbiguous) {
       return { lang: 'unknown', isAmbiguous: true, scoreEs, scoreEn, weightedEs, weightedEn, hitsEs, hitsEn, totalTokens, accentHits };
