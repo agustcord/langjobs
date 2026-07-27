@@ -51,7 +51,13 @@ const accuracyPct = totalCardsSampled > 0
 
 const pctProgress = ((totalCardsSampled / TARGET_GOAL) * 100).toFixed(1);
 
-// Construcción de la nota Markdown en Obsidian
+// Construcción de elementos visuales
+const barFilled = Math.min(20, Math.round((totalCardsSampled / TARGET_GOAL) * 20));
+const progressBarStr = '█'.repeat(barFilled) + '░'.repeat(20 - barFilled);
+
+const correctCards = Math.max(0, totalCardsSampled - totalReports);
+
+// Construcción de la nota Markdown en Obsidian con alto impacto visual
 let md = `# 📊 09 — Dashboard de Seguimiento Beta Testing (Prueba de Campo)
 
 > **Proyecto:** LangJobs (*Job Language Filter for LinkedIn*)  
@@ -59,11 +65,34 @@ let md = `# 📊 09 — Dashboard de Seguimiento Beta Testing (Prueba de Campo)
 
 ---
 
+## 🚀 Progreso Global de la Muestra (Meta: 10.000 Vacantes)
+
+> [!info] **Barra de Avance hacia las 10.000 Vacantes**
+> \`${progressBarStr}\` **${pctProgress}%** (${totalCardsSampled.toLocaleString('es-AR')} / ${TARGET_GOAL.toLocaleString('es-AR')})
+> <progress value="${totalCardsSampled}" max="${TARGET_GOAL}"></progress>
+
+> [!success] **Tasa de Precisión Actual: ${accuracyPct.toFixed(2)}%**
+> - **Vacantes Evaluadas:** ${totalCardsSampled.toLocaleString('es-AR')}
+> - **Clasificaciones Correctas:** ${correctCards.toLocaleString('es-AR')}
+> - **Errores Registrados:** ${totalReports}
+
+---
+
+## 📊 Gráfico de Distribución (Mermaid)
+
+\`\`\`mermaid
+pie title Clasificación en Campo
+    "Correctas (${accuracyPct.toFixed(1)}%)" : ${correctCards}
+    "Errores Reportados (${(100 - accuracyPct).toFixed(1)}%)" : ${totalReports}
+\`\`\`
+
+---
+
 ## 📈 Resumen Ejecutivo & Métricas de Precisión
 
 | Métrica | Valor | Meta | Estado |
 |---|---|---|---|
-| **Meta de Vacantes Muestra** | **${totalCardsSampled} / ${TARGET_GOAL.toLocaleString('es-AR')}** | **${TARGET_GOAL.toLocaleString('es-AR')} vacantes** | ${totalCardsSampled >= TARGET_GOAL ? '✅ Muestra Completa' : '⏳ En Progreso (' + pctProgress + '%)'} |
+| **Meta de Vacantes Muestra** | **${totalCardsSampled.toLocaleString('es-AR')} / ${TARGET_GOAL.toLocaleString('es-AR')}** | **${TARGET_GOAL.toLocaleString('es-AR')} vacantes** | ${totalCardsSampled >= TARGET_GOAL ? '✅ Muestra Completa' : '⏳ En Progreso (' + pctProgress + '%)'} |
 | **Total Errores Reportados** | **${totalReports}** | - | 🐞 ${totalReports} reportes |
 | **Tasa de Precisión Calculada** | **${accuracyPct.toFixed(2)}%** | **≥ 95%** | ${accuracyPct >= 95 ? '⭐ CUMPLE OBJETIVO' : '⚠️ REQUIERE AJUSTE'} |
 
