@@ -4,13 +4,13 @@
 
 ### Job Language Filter for LinkedIn
 
-**Filtrá las vacantes de LinkedIn por idioma (español / inglés) — 100% local, sin enviar un solo byte a ningún servidor.**
+**Filtrá las vacantes de LinkedIn por idioma (español / inglés) — detección de idioma 100% local en tu navegador; solo para las vacantes dudosas consulta el endpoint público de LinkedIn.**
 
-*Filter LinkedIn job posts by language (Spanish / English) — 100% local processing, zero data leaves your browser.*
+*Filter LinkedIn job posts by language (Spanish / English) — language detection runs 100% locally in your browser; only ambiguous jobs trigger a read-only request to LinkedIn's public job endpoint.*
 
 ![Estado](https://img.shields.io/badge/estado-en%20desarrollo-green)
 ![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
-![Privacidad](https://img.shields.io/badge/privacidad-100%25%20local-success)
+![Privacidad](https://img.shields.io/badge/privacidad-sin%20servidor%20propio-success)
 ![Prototipo](https://img.shields.io/badge/prototipo-Tampermonkey-00485B?logo=tampermonkey)
 
 </div>
@@ -35,9 +35,10 @@ Funciona automáticamente con el scroll infinito: las vacantes nuevas se clasifi
 
 ## 🔒 Privacidad primero (en serio)
 
-- **Todo el procesamiento ocurre en tu pestaña.** La detección de idioma usa listas de palabras funcionales (stopwords) evaluadas en memoria — no hay IA remota, no hay API externa, no hay servidor nuestro.
-- **Cero recolección de datos.** No leemos, guardamos ni transmitimos descripciones de vacantes, empresas ni datos de tu cuenta. Lo único que se persiste es tu configuración (idioma, modo), localmente en tu navegador.
-- **Cero automatización.** LangJobs no clickea, no aplica a vacantes, no simula actividad. Solo lee el texto ya visible en tu pantalla y aplica estilos CSS.
+- **El detector de idioma corre 100% en tu navegador.** Usa listas de palabras funcionales (stopwords) evaluadas en memoria — no hay IA remota ni servidor nuestro.
+- **Resolución de vacantes dudosas:** para las tarjetas que el detector no puede clasificar por el título (badge `??`), LangJobs hace una petición de **solo lectura** al endpoint público de LinkedIn `jobs-guest/jobs/api/jobPosting/<id>` para leer la descripción completa y resolver el idioma. Esa petición va a los servidores de LinkedIn (no a un servidor nuestro) y solo envía el ID de la vacante; no manda datos de tu cuenta ni de navegación.
+- **Cero recolección de datos.** No leemos, guardamos ni transmitimos descripciones, empresas ni datos de tu cuenta a ningún servidor nuestro. Lo único que se persiste es tu configuración (idioma, modo), localmente en tu navegador.
+- **Cero automatización de actividad.** LangJobs no clickea, no aplica a vacantes ni simula actividad. No envía datos personales a ningún lado.
 - **Permisos mínimos.** Solo `storage` y acceso a `linkedin.com/jobs/*`. Nada más.
 
 ## ⚙️ Cómo funciona (resumen técnico)
@@ -55,7 +56,7 @@ LangJobs clasifica cada vacante con un **pipeline de 5 capas** que combina detec
 1. **Capa 1 — Detector Local Instantáneo (0 ms):** Evalúa `título + empresa` mediante *stopwords funcionales* y un diccionario de roles (`ROLE_ES` / `ROLE_EN`). Clasifica al instante la mayoría de las vacantes de la lista.
 2. **Capa 2 — Heurística de Modalidad de Mercado (LATAM/Rosario):** Analiza el tipo de lugar de trabajo (`Presencial` / `Híbrido` vs `En remoto`). Los puestos locales presenciales/híbridos con títulos en español se confirman inmediatamente como `ES`.
 3. **Capa 3 — Marcado de Ambigüedad Fail-Open (Gris `??`):** Si una vacante tiene título en inglés pero modalidad presencial/híbrida local (ej. *Varsity Tutors* vs *Wiener lab*), se asigna temporalmente `??` (Gris). **NUNCA se oculta ni atenúa en modo `hide`** (garantía anti-pérdida de vacantes).
-4. **Capa 4 — Fetch Silencioso Asíncrono en Segundo Plano:** Para las dudosas (las `??`), una cola asíncrona throttled (máx. 3 peticiones simultáneas) dispara un `fetch('/jobs/view/<jobId>/')` silencioso. Lee las 500 palabras de la descripción completa en **~300 ms** y resuelve la tarjeta en la lista de `??` ➔ `ES` o `EN`. Los resultados se guardan en el caché en memoria `FETCH_CACHE`.
+4. **Capa 4 — Fetch Silencioso Asíncrono en Segundo Plano:** Para las dudosas (las `??`), una cola asíncrona throttled (máx. 3 peticiones simultáneas) dispara un `fetch('https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/<jobId>')` silencioso al endpoint público de LinkedIn. Lee la descripción completa en **~300 ms** y resuelve la tarjeta en la lista de `??` ➔ `ES` o `EN`. Los resultados se guardan en el caché en memoria `FETCH_CACHE`.
 5. **Capa 5 — Retro-etiquetado por Panel de Detalle Activo:** Al seleccionar cualquier tarjeta en la lista, el lector del panel derecho confirma el idioma en tiempo real.
 
 > ⚠️ **Sobre la precisión:** la detección es buena pero **no es perfecta**. En pruebas internas con un corpus de casos conocidos (títulos cortos, spanglish, bilingüe, jerga técnica) el acierto se ubica en un rango aproximado de **80%–90%**, y **todavía no hay una validación de precisión formal en búsquedas reales de LinkedIn**. El modo `label` (V1) entrega valor aunque haya algún error: siempre ves el badge y podés confirmar a ojo. El fail-open (`??`) evita ocultar por error una vacante válida.
