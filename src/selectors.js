@@ -281,8 +281,23 @@
     return cleaned;
   }
 
+  // Extrae el objeto JSON Fixture para el Modo Beta / Feedback Reporter
+  function extractJobFixture(card, badgedLang, expectedLang, descSnippet) {
+    const base = extractFromCard(card);
+    return {
+      jobId: base.jobId || '',
+      title: base.title || '',
+      company: base.company || '',
+      modality: base.modality || 'desconocido',
+      badgedLang: badgedLang || 'unknown',
+      expectedLang: expectedLang || (badgedLang === 'es' ? 'en' : 'es'),
+      descriptionSnippet: cleanText(descSnippet || '').slice(0, 300),
+    };
+  }
+
   return {
     extractFromCard: extractFromCard,
+    extractJobFixture: extractJobFixture,
     descriptionFromDetail: descriptionFromDetail,
     extractDescriptionFromHTML: extractDescriptionFromHTML,
     getActiveJobId: getActiveJobId,

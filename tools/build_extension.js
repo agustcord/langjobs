@@ -52,11 +52,12 @@ const FOOTER = `
   // Arranca el observer con la config de chrome.storage.local (o defaults).
   // Prepara T2.5: reacciona en vivo a cambios de config sin recargar la página.
   (function bootstrap() {
-    var DEFAULTS = { enabled: true, targetLang: 'es', mode: 'label' };
+    var DEFAULTS = { enabled: true, targetLang: 'es', mode: 'label', betaReportingEnabled: false };
     var state = {
       enabled: DEFAULTS.enabled,
       targetLang: DEFAULTS.targetLang,
       mode: DEFAULTS.mode,
+      betaReportingEnabled: DEFAULTS.betaReportingEnabled,
     };
     var handle = null;
 
@@ -89,15 +90,16 @@ const FOOTER = `
       if (typeof partial.enabled !== 'undefined') state.enabled = !!partial.enabled;
       if (partial.targetLang) state.targetLang = partial.targetLang;
       if (partial.mode) state.mode = partial.mode;
+      if (typeof partial.betaReportingEnabled !== 'undefined') state.betaReportingEnabled = !!partial.betaReportingEnabled;
       if (root.LangJobsApp && root.LangJobsApp.setConfig) {
-        root.LangJobsApp.setConfig({ targetLang: state.targetLang, mode: state.mode });
+        root.LangJobsApp.setConfig({ targetLang: state.targetLang, mode: state.mode, betaReportingEnabled: state.betaReportingEnabled });
       }
       if (state.enabled) startObserving(); else stopObserving();
     }
 
     // Leer config de storage (async). Sin chrome.storage, usar defaults.
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(['enabled', 'targetLang', 'mode'], function (cfg) {
+      chrome.storage.local.get(['enabled', 'targetLang', 'mode', 'betaReportingEnabled'], function (cfg) {
         apply(cfg || {});
       });
     } else {
@@ -112,7 +114,8 @@ const FOOTER = `
         if (changes.enabled) partial.enabled = changes.enabled.newValue;
         if (changes.targetLang) partial.targetLang = changes.targetLang.newValue;
         if (changes.mode) partial.mode = changes.mode.newValue;
-        if (partial.enabled !== undefined || partial.targetLang || partial.mode) apply(partial);
+        if (typeof changes.betaReportingEnabled !== 'undefined') partial.betaReportingEnabled = changes.betaReportingEnabled.newValue;
+        if (partial.enabled !== undefined || partial.targetLang || partial.mode || partial.betaReportingEnabled !== undefined) apply(partial);
       });
     }
 

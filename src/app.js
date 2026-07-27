@@ -26,6 +26,7 @@
   const CONFIG = {
     targetLang: 'es',
     mode: 'label', // Versión V1 MVP: Etiquetado Visual Exclusivo (90-95%+ valor entregado)
+    betaReportingEnabled: false,
   };
 
   const BADGE = {
@@ -211,9 +212,12 @@
       '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
       '[data-job-id]{position:relative !important;}\n' +
       '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
-      'display:inline-block;padding:1px 6px;border-radius:4px;' +
+      'display:inline-flex !important;align-items:center !important;gap:3px !important;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
-      'line-height:1.4;pointer-events:none;}\n';
+      'line-height:1.4;pointer-events:none;}\n' +
+      '.llf-reporter-btn{pointer-events:auto !important;cursor:pointer !important;display:inline-block;' +
+      'opacity:0.85;font-size:10px;margin-left:2px;user-select:none;}\n' +
+      '.llf-reporter-btn:hover{opacity:1.0;transform:scale(1.2);}\n';
     (doc.head || doc.documentElement).appendChild(style);
   }
 
@@ -283,8 +287,53 @@
           card.appendChild(badge);
         }
       }
-      badge.textContent = b.label;
+      
+      const config = (opts && opts.config) || CONFIG;
+      const isBeta = config.betaReportingEnabled;
+
+      let badgeLabelNode = badge.querySelector('.llf-badge-label');
+      if (!badgeLabelNode) {
+        badgeLabelNode = document.createElement('span');
+        badgeLabelNode.className = 'llf-badge-label';
+        badge.appendChild(badgeLabelNode);
+      }
+      badgeLabelNode.textContent = b.label;
       badge.style.cssText = 'background:' + b.color + ';';
+
+      let reporterBtn = badge.querySelector('.llf-reporter-btn');
+      if (isBeta) {
+        if (!reporterBtn) {
+          reporterBtn = document.createElement('span');
+          reporterBtn.className = 'llf-reporter-btn';
+          reporterBtn.setAttribute('title', 'Reportar clasificación errónea (copiar JSON fixture)');
+          reporterBtn.textContent = '⚠️';
+          badge.appendChild(reporterBtn);
+
+          reporterBtn.addEventListener('click', function (evt) {
+            if (evt && evt.stopPropagation) evt.stopPropagation();
+            if (evt && evt.preventDefault) evt.preventDefault();
+            const currentLang = data.lang;
+            const expectedLang = currentLang === 'es' ? 'en' : (currentLang === 'en' ? 'es' : 'es');
+            const desc = data.description || (selectors.getDetailDescription ? selectors.getDetailDescription(document) : '');
+            const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc) : {};
+            const jsonStr = JSON.stringify(fixture, null, 2);
+
+            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(jsonStr).then(function () {
+                reporterBtn.textContent = '✅';
+                setTimeout(function () { reporterBtn.textContent = '⚠️'; }, 1500);
+              }).catch(function () {
+                if (typeof prompt !== 'undefined') prompt('Copia el JSON Fixture de feedback:', jsonStr);
+              });
+            } else if (typeof prompt !== 'undefined') {
+              prompt('Copia el JSON Fixture de feedback:', jsonStr);
+            }
+          });
+        }
+      } else if (reporterBtn) {
+        if (reporterBtn.remove) reporterBtn.remove();
+        else if (reporterBtn.parentNode) reporterBtn.parentNode.removeChild(reporterBtn);
+      }
     }
     if (card.setAttribute) card.setAttribute('data-llf-lang', data.lang);
     return data;
@@ -355,6 +404,7 @@
     if (partial && typeof partial === 'object') {
       if (partial.targetLang) CONFIG.targetLang = partial.targetLang;
       if (partial.mode) CONFIG.mode = partial.mode;
+      if (typeof partial.betaReportingEnabled !== 'undefined') CONFIG.betaReportingEnabled = !!partial.betaReportingEnabled;
     }
     // Reprocesar forzado para aplicar el nuevo modo (T1.9: con getDescription
     // del panel de detalle activo, si lo hay).

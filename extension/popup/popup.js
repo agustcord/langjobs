@@ -24,10 +24,13 @@
   'use strict';
 
   var KEY = 'enabled';
+  var KEY_BETA = 'betaReportingEnabled';
   var DEFAULT_ENABLED = true;
+  var DEFAULT_BETA = false;
   var REFRESH_MS = 1500;
 
   var checkbox = document.getElementById('enabled');
+  var checkboxBeta = document.getElementById('betaReportingEnabled');
   var elEs = document.getElementById('count-es');
   var elEn = document.getElementById('count-en');
   var elUnk = document.getElementById('count-unknown');
@@ -36,17 +39,22 @@
 
   // Estado real de habilitado, sincronizado desde chrome.storage (async).
   var isEnabled = DEFAULT_ENABLED;
+  var isBetaEnabled = DEFAULT_BETA;
 
   function readConfig() {
     if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
       isEnabled = DEFAULT_ENABLED;
+      isBetaEnabled = DEFAULT_BETA;
       if (checkbox) checkbox.checked = DEFAULT_ENABLED;
+      if (checkboxBeta) checkboxBeta.checked = DEFAULT_BETA;
       requestCount(); // no hay storage: usamos default y pedimos conteo igual
       return;
     }
-    chrome.storage.local.get([KEY], function (cfg) {
+    chrome.storage.local.get([KEY, KEY_BETA], function (cfg) {
       isEnabled = (typeof cfg[KEY] === 'boolean') ? cfg[KEY] : DEFAULT_ENABLED;
+      isBetaEnabled = (typeof cfg[KEY_BETA] === 'boolean') ? cfg[KEY_BETA] : DEFAULT_BETA;
       if (checkbox) checkbox.checked = isEnabled;
+      if (checkboxBeta) checkboxBeta.checked = isBetaEnabled;
       requestCount(); // pedir conteo YA con isEnabled sincronizado
     });
   }
@@ -57,6 +65,12 @@
     chrome.storage.local.set({ enabled: isEnabled }, function () {});
     if (!isEnabled) showDisabledNote();
     else requestCount(); // al prender, refrescar de inmediato
+  }
+
+  function onBetaToggle() {
+    isBetaEnabled = !!checkboxBeta.checked;
+    if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+    chrome.storage.local.set({ betaReportingEnabled: isBetaEnabled }, function () {});
   }
 
   function showDisabledNote() {
@@ -118,6 +132,7 @@
     // readConfig() dispara requestCount() dentro de su callback (isEnabled ya real).
     readConfig();
     if (checkbox) checkbox.addEventListener('change', onToggle);
+    if (checkboxBeta) checkboxBeta.addEventListener('change', onBetaToggle);
     startCounting();
     window.addEventListener('pagehide', stopCounting);
   });
