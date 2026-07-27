@@ -335,7 +335,12 @@
               };
             }
 
-            const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc, pageStats) : {};
+            const extraMeta = {
+              timestamp: new Date().toISOString(),
+              url: (typeof window !== 'undefined' && window.location && window.location.href) ? window.location.href : '',
+            };
+
+            const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc, pageStats, extraMeta) : {};
             const jsonStr = JSON.stringify(fixture, null, 2);
 
             if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {

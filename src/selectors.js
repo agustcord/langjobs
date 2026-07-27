@@ -282,7 +282,7 @@
   }
 
   // Extrae el objeto JSON Fixture para el Modo Beta / Feedback Reporter
-  function extractJobFixture(card, badgedLang, expectedLang, descSnippet, pageStats) {
+  function extractJobFixture(card, badgedLang, expectedLang, descSnippet, pageStats, extraMeta) {
     const base = extractFromCard(card);
     const fixture = {
       jobId: base.jobId || '',
@@ -292,6 +292,8 @@
       badgedLang: badgedLang || 'unknown',
       expectedLang: expectedLang || (badgedLang === 'es' ? 'en' : 'es'),
       descriptionSnippet: cleanText(descSnippet || '').slice(0, 300),
+      timestamp: (extraMeta && extraMeta.timestamp) || (new Date().toISOString()),
+      url: (extraMeta && extraMeta.url) || (typeof window !== 'undefined' && window.location ? window.location.href : ''),
     };
     if (pageStats && typeof pageStats === 'object') {
       fixture.pageStatsAtReport = pageStats;
