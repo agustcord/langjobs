@@ -630,9 +630,9 @@
   }
 
   // Extrae el objeto JSON Fixture para el Modo Beta / Feedback Reporter
-  function extractJobFixture(card, badgedLang, expectedLang, descSnippet) {
+  function extractJobFixture(card, badgedLang, expectedLang, descSnippet, pageStats) {
     const base = extractFromCard(card);
-    return {
+    const fixture = {
       jobId: base.jobId || '',
       title: base.title || '',
       company: base.company || '',
@@ -641,6 +641,10 @@
       expectedLang: expectedLang || (badgedLang === 'es' ? 'en' : 'es'),
       descriptionSnippet: cleanText(descSnippet || '').slice(0, 300),
     };
+    if (pageStats && typeof pageStats === 'object') {
+      fixture.pageStatsAtReport = pageStats;
+    }
+    return fixture;
   }
 
   return {
@@ -975,7 +979,27 @@
             const currentLang = data.lang;
             const expectedLang = currentLang === 'es' ? 'en' : (currentLang === 'en' ? 'es' : 'es');
             const desc = data.description || (selectors.getDetailDescription ? selectors.getDetailDescription(document) : '');
-            const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc) : {};
+
+            // Captura instantánea del conteo total y por idioma en el momento exacto del clic
+            let pageStats = null;
+            if (document && document.querySelectorAll) {
+              const allCards = document.querySelectorAll('[data-job-id]');
+              let esCount = 0, enCount = 0, unkCount = 0;
+              for (let i = 0; i < allCards.length; i++) {
+                const l = allCards[i].getAttribute ? allCards[i].getAttribute('data-llf-lang') : '';
+                if (l === 'es') esCount++;
+                else if (l === 'en') enCount++;
+                else if (l === 'unknown') unkCount++;
+              }
+              pageStats = {
+                totalCards: allCards.length,
+                esCount: esCount,
+                enCount: enCount,
+                unknownCount: unkCount,
+              };
+            }
+
+            const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc, pageStats) : {};
             const jsonStr = JSON.stringify(fixture, null, 2);
 
             if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
