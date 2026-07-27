@@ -13,6 +13,8 @@ const ROOT = path.join(__dirname, '..');
 const REPORTS_FILE = path.join(ROOT, 'tests', 'beta_reports.json');
 const WIKI_FILE = path.join(ROOT, '.memory', 'wiki', '09_Seguimiento_Beta_Testing.md');
 
+const TARGET_GOAL = 10000;
+
 let reports = [];
 if (fs.existsSync(REPORTS_FILE)) {
   try {
@@ -47,6 +49,8 @@ const accuracyPct = totalCardsSampled > 0
   ? Math.max(0, Math.min(100, ((totalCardsSampled - totalReports) / totalCardsSampled) * 100))
   : 100;
 
+const pctProgress = ((totalCardsSampled / TARGET_GOAL) * 100).toFixed(1);
+
 // Construcción de la nota Markdown en Obsidian
 let md = `# 📊 09 — Dashboard de Seguimiento Beta Testing (Prueba de Campo)
 
@@ -59,9 +63,9 @@ let md = `# 📊 09 — Dashboard de Seguimiento Beta Testing (Prueba de Campo)
 
 | Métrica | Valor | Meta | Estado |
 |---|---|---|---|
-| **Meta de Vacantes Muestra** | **${totalCardsSampled} / 100** | **100 vacantes** | ${totalCardsSampled >= 100 ? '✅ Muestra Completa' : '⏳ En Progreso (' + Math.round((totalCardsSampled/100)*100) + '%)'} |
+| **Meta de Vacantes Muestra** | **${totalCardsSampled} / ${TARGET_GOAL.toLocaleString('es-AR')}** | **${TARGET_GOAL.toLocaleString('es-AR')} vacantes** | ${totalCardsSampled >= TARGET_GOAL ? '✅ Muestra Completa' : '⏳ En Progreso (' + pctProgress + '%)'} |
 | **Total Errores Reportados** | **${totalReports}** | - | 🐞 ${totalReports} reportes |
-| **Tasa de Precisión Calculada** | **${accuracyPct.toFixed(1)}%** | **≥ 95%** | ${accuracyPct >= 95 ? '⭐ CUMPLE OBJETIVO' : '⚠️ REQUIERE AJUSTE'} |
+| **Tasa de Precisión Calculada** | **${accuracyPct.toFixed(2)}%** | **≥ 95%** | ${accuracyPct >= 95 ? '⭐ CUMPLE OBJETIVO' : '⚠️ REQUIERE AJUSTE'} |
 
 ---
 
