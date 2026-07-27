@@ -11,7 +11,14 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const REPORTS_FILE = path.join(ROOT, 'tests', 'beta_reports.json');
-const WIKI_FILE = path.join(ROOT, '.memory', 'wiki', '09_Seguimiento_Beta_Testing.md');
+
+const VAULT_NAME = fs.existsSync(path.join(ROOT, '.extension_linkedin_obisidian'))
+  ? '.extension_linkedin_obisidian'
+  : (fs.existsSync(path.join(ROOT, '.extension_linkedin_obsidian'))
+      ? '.extension_linkedin_obsidian'
+      : '.memory');
+
+const WIKI_FILE = path.join(ROOT, VAULT_NAME, 'wiki', '09_Seguimiento_Beta_Testing.md');
 
 const TARGET_GOAL = 10000;
 
