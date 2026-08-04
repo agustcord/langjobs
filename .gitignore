@@ -6,8 +6,11 @@
 .extension_linkedin_obisidian/
 .extension_linkedin_obsidian/
 
-# ── Artefactos de documentos generados localmente ──
+# ── Documentos de estrategia comercial generados localmente — NO al repo ──
+# El generador lleva el contenido de la estrategia embebido en el propio
+# script, así que se excluyen tanto el PDF como su generador.
 LangJobs-Canales-Distribucion-Gratuita.pdf
+tools/gen_distrib_pdf.py
 
 # ── Sistema operativo ──
 Thumbs.db
