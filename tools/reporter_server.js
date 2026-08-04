@@ -34,15 +34,15 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/report') {
+  if (req.method === 'POST' && (req.url === '/report' || req.url === '/report-page-success')) {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
     req.on('end', () => {
       try {
         const fixture = JSON.parse(body);
-        if (!fixture || !fixture.jobId) {
+        if (!fixture) {
           res.writeHead(400, CORS_HEADERS);
-          res.end(JSON.stringify({ error: 'Fixture inválido o sin jobId' }));
+          res.end(JSON.stringify({ error: 'Fixture vacío o inválido' }));
           return;
         }
 
@@ -56,17 +56,41 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        // Deduplicar o actualizar por jobId
-        const existingIdx = reports.findIndex(r => r.jobId === fixture.jobId);
-        if (existingIdx !== -1) {
-          reports[existingIdx] = fixture;
+        const isPageSuccess = fixture.type === 'page_success';
+
+        if (isPageSuccess) {
+          if (!fixture.pageStats || !Array.isArray(fixture.jobIds)) {
+            res.writeHead(400, CORS_HEADERS);
+            res.end(JSON.stringify({ error: 'Evento page_success inválido: requiere pageStats y jobIds' }));
+            return;
+          }
+          // Deduplicar evento page_success por URL y fecha
+          const dateKey = (fixture.timestamp || '').slice(0, 10);
+          const existingIdx = reports.findIndex(r => r.type === 'page_success' && r.url === fixture.url && (r.timestamp || '').slice(0, 10) === dateKey);
+          if (existingIdx !== -1) {
+            reports[existingIdx] = fixture;
+          } else {
+            reports.push(fixture);
+          }
+          console.log(`[Beta Reporter] ✨ Página confirmada OK registrada (${fixture.pageStats.totalCards} vacantes en ${fixture.url || 'URL activa'})`);
         } else {
-          reports.push(fixture);
+          if (!fixture.jobId) {
+            res.writeHead(400, CORS_HEADERS);
+            res.end(JSON.stringify({ error: 'Fixture inválido o sin jobId' }));
+            return;
+          }
+          // Deduplicar o actualizar por jobId
+          const existingIdx = reports.findIndex(r => r.jobId === fixture.jobId);
+          if (existingIdx !== -1) {
+            reports[existingIdx] = fixture;
+          } else {
+            reports.push(fixture);
+          }
+          console.log(`[Beta Reporter] 🐞 Reporte de error registrado para jobId ${fixture.jobId} (${fixture.title} - ${fixture.company})`);
         }
 
         // Guardar JSON formateado impecablemente
         fs.writeFileSync(REPORTS_FILE, JSON.stringify(reports, null, 2), 'utf8');
-        console.log(`[Beta Reporter] 🐞 Reporte registrado para jobId ${fixture.jobId} (${fixture.title} - ${fixture.company})`);
 
         // Ejecutar actualización del Dashboard de Obsidian
         exec(`node "${SUMMARIZE_SCRIPT}"`, (err, stdout) => {
@@ -74,7 +98,7 @@ const server = http.createServer((req, res) => {
         });
 
         res.writeHead(200, CORS_HEADERS);
-        res.end(JSON.stringify({ success: true, count: reports.length, jobId: fixture.jobId }));
+        res.end(JSON.stringify({ success: true, count: reports.length, type: fixture.type || 'error_report', jobId: fixture.jobId || null }));
       } catch (err) {
         console.error('[Beta Reporter] Error procesando reporte:', err.message);
         res.writeHead(500, CORS_HEADERS);
