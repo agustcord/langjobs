@@ -301,9 +301,50 @@
     return fixture;
   }
 
+  // Extrae el objeto JSON Fixture para la validación de página completa 100% OK (page_success)
+  function extractPageSuccessFixture(doc, extraMeta) {
+    const root = doc || (typeof document !== 'undefined' ? document : null);
+    const jobIds = [];
+    let totalCards = 0;
+    let esCount = 0;
+    let enCount = 0;
+    let unknownCount = 0;
+
+    if (root && root.querySelectorAll) {
+      const cards = root.querySelectorAll('[data-job-id]');
+      totalCards = cards.length;
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        const jId = jobIdFromCard(card);
+        if (jId && jobIds.indexOf(jId) === -1) {
+          jobIds.push(jId);
+        }
+        const lang = card.getAttribute ? card.getAttribute('data-llf-lang') : '';
+        if (lang === 'es') esCount++;
+        else if (lang === 'en') enCount++;
+        else unknownCount++;
+      }
+    }
+
+    return {
+      type: 'page_success',
+      timestamp: (extraMeta && extraMeta.timestamp) || (new Date().toISOString()),
+      url: (extraMeta && extraMeta.url) || (typeof window !== 'undefined' && window.location ? window.location.href : ''),
+      pageStats: {
+        totalCards: totalCards,
+        esCount: esCount,
+        enCount: enCount,
+        unknownCount: unknownCount,
+      },
+      jobIds: jobIds,
+      verifiedBy: (extraMeta && extraMeta.verifiedBy) || 'user_confirm',
+    };
+  }
+
   return {
     extractFromCard: extractFromCard,
     extractJobFixture: extractJobFixture,
+    extractPageSuccessFixture: extractPageSuccessFixture,
     descriptionFromDetail: descriptionFromDetail,
     extractDescriptionFromHTML: extractDescriptionFromHTML,
     getActiveJobId: getActiveJobId,

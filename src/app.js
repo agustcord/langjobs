@@ -217,7 +217,24 @@
       'line-height:1.4;pointer-events:none;}\n' +
       '.llf-reporter-btn{pointer-events:auto !important;cursor:pointer !important;display:inline-block;' +
       'opacity:0.85;font-size:10px;margin-left:2px;user-select:none;}\n' +
-      '.llf-reporter-btn:hover{opacity:1.0;transform:scale(1.2);}\n';
+      '.llf-reporter-btn:hover{opacity:1.0;transform:scale(1.2);}\n' +
+      '.llf-beta-banner{position:fixed !important;bottom:18px !important;right:18px !important;z-index:2147483647 !important;' +
+      'display:flex !important;align-items:center !important;gap:10px !important;padding:8px 14px !important;border-radius:20px !important;' +
+      'background:rgba(15, 23, 42, 0.92) !important;backdrop-filter:blur(10px) !important;border:1px solid rgba(255, 255, 255, 0.15) !important;' +
+      'box-shadow:0 8px 24px rgba(0, 0, 0, 0.35) !important;font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;' +
+      'font-size:12px !important;color:#f8fafc !important;line-height:1.2 !important;transition:all 0.3s ease !important;}\n' +
+      '.llf-beta-banner-stats{display:flex !important;align-items:center !important;gap:6px !important;}\n' +
+      '.llf-beta-chip{padding:2px 7px !important;border-radius:10px !important;font-weight:700 !important;font-size:11px !important;color:#fff !important;}\n' +
+      '.llf-beta-chip-es{background:#0284c7 !important;}\n' +
+      '.llf-beta-chip-en{background:#16a34a !important;}\n' +
+      '.llf-beta-chip-unk{background:#64748b !important;}\n' +
+      '.llf-beta-confirm-btn{display:inline-flex !important;align-items:center !important;gap:4px !important;padding:5px 12px !important;' +
+      'border-radius:14px !important;background:linear-gradient(135deg, #10b981 0%, #059669 100%) !important;color:#ffffff !important;' +
+      'font-weight:600 !important;font-size:12px !important;cursor:pointer !important;border:none !important;' +
+      'box-shadow:0 2px 8px rgba(16, 185, 129, 0.3) !important;transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;user-select:none !important;}\n' +
+      '.llf-beta-confirm-btn:hover{transform:translateY(-1px) scale(1.03) !important;box-shadow:0 4px 14px rgba(16, 185, 129, 0.5) !important;' +
+      'background:linear-gradient(135deg, #34d399 0%, #059669 100%) !important;}\n' +
+      '.llf-beta-confirm-btn:active{transform:translateY(0) scale(0.98) !important;}\n';
     (doc.head || doc.documentElement).appendChild(style);
   }
 
@@ -341,45 +358,15 @@
             };
 
             const fixture = selectors.extractJobFixture ? selectors.extractJobFixture(card, currentLang, expectedLang, desc, pageStats, extraMeta) : {};
-            const jsonStr = JSON.stringify(fixture, null, 2);
-
-            function copyToClipboardFallback(text, btn) {
-              if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(text).then(function () {
-                  if (btn) {
-                    btn.textContent = '📋';
-                    setTimeout(function () { btn.textContent = '⚠️'; }, 1500);
-                  }
-                }).catch(function () {
-                  if (typeof prompt !== 'undefined') prompt('Copia el JSON Fixture de feedback:', text);
-                });
-              } else if (typeof prompt !== 'undefined') {
-                prompt('Copia el JSON Fixture de feedback:', text);
+            sendReportPayload(fixture, {}, function (err, source) {
+              if (!err && source === 'http') {
+                reporterBtn.textContent = '✅';
+                setTimeout(function () { reporterBtn.textContent = '⚠️'; }, 1500);
+              } else if (source === 'clipboard') {
+                reporterBtn.textContent = '📋';
+                setTimeout(function () { reporterBtn.textContent = '⚠️'; }, 1500);
               }
-            }
-
-            // Envío directo al servidor local de reportes (http://localhost:3100/report)
-            if (typeof fetch === 'function') {
-              fetch('http://localhost:3100/report', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: jsonStr,
-              })
-              .then(function (res) {
-                if (res.ok) {
-                  reporterBtn.textContent = '✅';
-                  setTimeout(function () { reporterBtn.textContent = '⚠️'; }, 1500);
-                } else {
-                  copyToClipboardFallback(jsonStr, reporterBtn);
-                }
-              })
-              .catch(function () {
-                // Servidor local aparente no activo: fallback automático a portapapeles
-                copyToClipboardFallback(jsonStr, reporterBtn);
-              });
-            } else {
-              copyToClipboardFallback(jsonStr, reporterBtn);
-            }
+            });
           });
         }
       } else if (reporterBtn) {
@@ -430,6 +417,72 @@
     return data;
   }
 
+  // ── Renderizado del Banner Flotante de Validación de Página (B.5.1) ────────
+  function renderBetaSuccessBanner(doc, opts) {
+    opts = opts || {};
+    const config = opts.config || CONFIG;
+    const document = doc || (typeof window !== 'undefined' ? window.document : null);
+    if (!document || !document.createElement) return;
+
+    let banner = document.querySelector('.llf-beta-banner');
+    if (!config.betaReportingEnabled) {
+      if (banner) {
+        if (banner.remove) banner.remove();
+        else if (banner.parentNode) banner.parentNode.removeChild(banner);
+      }
+      return;
+    }
+
+    ensureStyles(document);
+
+    const fixture = selectors.extractPageSuccessFixture ? selectors.extractPageSuccessFixture(document) : { pageStats: { totalCards: 0, esCount: 0, enCount: 0, unknownCount: 0 } };
+    const stats = fixture.pageStats || { totalCards: 0, esCount: 0, enCount: 0, unknownCount: 0 };
+
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.className = 'llf-beta-banner';
+      banner.innerHTML =
+        '<div class="llf-beta-banner-stats">' +
+          '<span class="llf-beta-chip llf-beta-chip-es" title="Vacantes en Español">ES: <b class="llf-cnt-es">0</b></span>' +
+          '<span class="llf-beta-chip llf-beta-chip-en" title="Vacantes en Inglés">EN: <b class="llf-cnt-en">0</b></span>' +
+          '<span class="llf-beta-chip llf-beta-chip-unk" title="Vacantes Dudosas">??: <b class="llf-cnt-unk">0</b></span>' +
+        '</div>' +
+        '<button class="llf-beta-confirm-btn" type="button" title="Confirmar que todas las clasificaciones de esta página son 100% correctas">' +
+          '✅ Validar Página OK' +
+        '</button>';
+
+      const btn = banner.querySelector('.llf-beta-confirm-btn');
+      if (btn) {
+        btn.addEventListener('click', function (evt) {
+          if (evt && evt.stopPropagation) evt.stopPropagation();
+          if (evt && evt.preventDefault) evt.preventDefault();
+          reportPageSuccess(document, {}, function (err, source) {
+            if (!err && source === 'http') {
+              btn.textContent = '✨ ¡Página Confirmada!';
+            } else if (source === 'clipboard' || source === 'prompt') {
+              btn.textContent = '📋 ¡Fixture Copiado!';
+            }
+            setTimeout(function () {
+              btn.textContent = '✅ Validar Página OK';
+            }, 2000);
+          });
+        });
+      }
+
+      const parentNode = document.body || document.documentElement;
+      if (parentNode && parentNode.appendChild) {
+        parentNode.appendChild(banner);
+      }
+    }
+
+    const esNode = banner.querySelector('.llf-cnt-es');
+    const enNode = banner.querySelector('.llf-cnt-en');
+    const unkNode = banner.querySelector('.llf-cnt-unk');
+    if (esNode) esNode.textContent = stats.esCount;
+    if (enNode) enNode.textContent = stats.enCount;
+    if (unkNode) unkNode.textContent = stats.unknownCount;
+  }
+
   const LAST_ERRORS = [];
   function processAll(root, opts) {
     opts = opts || {};
@@ -437,7 +490,7 @@
     const cards = root.querySelectorAll('[data-job-id]');
     const list = Array.prototype.slice.call(cards).filter(isJobCardContainer);
     LAST_ERRORS.length = 0;
-    return list.map(function (card, i) {
+    const res = list.map(function (card, i) {
       // BLINDAJE (v0.3.0): una tarjeta con forma inesperada (LinkedIn redeploy)
       // NO debe matar el loop entero — eso producía "solo la primera tarjeta
       // tiene badge" cuando processCard lanzaba en la tarjeta 2.
@@ -448,6 +501,9 @@
         return { error: true, lang: 'unknown', jobId: '', message: (e && e.message) || String(e) };
       }
     });
+    const document = root.ownerDocument || (typeof window !== 'undefined' ? window.document : root);
+    renderBetaSuccessBanner(document, opts);
+    return res;
   }
 
   // ── Cambiar config en caliente y reprocesar (T1.8: conmutable) ──────────────
@@ -481,6 +537,12 @@
     opts = opts || {};
     const document = root || (typeof document !== 'undefined' ? document : null);
     if (!document || !document.querySelectorAll) return 0;
+
+    const banner = document.querySelector('.llf-beta-banner');
+    if (banner) {
+      if (banner.remove) banner.remove();
+      else if (banner.parentNode && banner.parentNode.removeChild) banner.parentNode.removeChild(banner);
+    }
 
     const badges = document.querySelectorAll('.llf-badge');
     const list = Array.prototype.slice.call(badges);
@@ -562,6 +624,56 @@
     };
   }
 
+  // ── Emisión y reporte de feedback / telemetría (B.5.2) ──────────────────
+  function sendReportPayload(fixture, opts, callback) {
+    opts = opts || {};
+    const jsonStr = typeof fixture === 'string' ? fixture : JSON.stringify(fixture, null, 2);
+    const endpoint = opts.endpoint || 'http://localhost:3100/report';
+
+    function copyToClipboardFallback(text) {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          if (typeof callback === 'function') callback(null, 'clipboard');
+        }).catch(function (err) {
+          if (typeof prompt !== 'undefined') prompt('Copia el JSON Fixture de feedback:', text);
+          if (typeof callback === 'function') callback(err || new Error('Clipboard failed'), 'prompt');
+        });
+      } else if (typeof prompt !== 'undefined') {
+        prompt('Copia el JSON Fixture de feedback:', text);
+        if (typeof callback === 'function') callback(null, 'prompt');
+      } else {
+        if (typeof callback === 'function') callback(new Error('No clipboard/prompt available'), 'none');
+      }
+    }
+
+    if (typeof fetch === 'function') {
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonStr,
+      })
+      .then(function (res) {
+        if (res.ok) {
+          if (typeof callback === 'function') callback(null, 'http');
+        } else {
+          copyToClipboardFallback(jsonStr);
+        }
+      })
+      .catch(function () {
+        copyToClipboardFallback(jsonStr);
+      });
+    } else {
+      copyToClipboardFallback(jsonStr);
+    }
+  }
+
+  function reportPageSuccess(doc, extraMeta, callback) {
+    const root = doc || (typeof document !== 'undefined' ? document : null);
+    const fixture = selectors.extractPageSuccessFixture ? selectors.extractPageSuccessFixture(root, extraMeta) : { type: 'page_success' };
+    sendReportPayload(fixture, {}, callback);
+    return fixture;
+  }
+
   return {
     run: run,
     observe: observe,
@@ -576,6 +688,8 @@
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
+    sendReportPayload: sendReportPayload,
+    reportPageSuccess: reportPageSuccess,
     LAST_ERRORS: LAST_ERRORS,
     CONFIG: CONFIG,
     BADGE: BADGE,
