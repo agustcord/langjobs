@@ -202,6 +202,38 @@ const CORPUS = [
     resultado: null,
     nota: 'Caso Fever con conector UI "en": Puesto híbrido con conector "en" inyectado por LinkedIn. Inicia ?? y el fetch silencioso lo resuelve a EN.',
   },
+  {
+    id: 'X18',
+    texto: 'Business Development Representative BDR | Prospección outbound para soluciones IT (desarrollo, staffing y SaaS) | Remoto LATAM En Lead Growth ayudamos a empresas tecnológicas a escalar sus ventas con estrategias outbound y Account Based Marketing. Buscamos un BDR que ya haya prospectado en frío vendiendo soluciones',
+    acepta: ['es'],
+    crítico: true,
+    resultado: null,
+    nota: 'Título en inglés pero descripción en español (Lead Growth). Al analizar la descripción completa debe dar es.',
+  },
+  {
+    id: 'X19',
+    texto: 'Business Analyst Sobre Finwaise Construimos un ERP con inteligencia artificial para empresas con operaciones financieras complejas. Estamos en una etapa de crecimiento donde cada persona que se suma tiene impacto real y directo en el producto. El rol Buscamos un/a Business Analyst que sea el puente en',
+    acepta: ['es'],
+    crítico: true,
+    resultado: null,
+    nota: 'Título en inglés pero descripción en español (Finwaise). La descripción manda: es.',
+  },
+  {
+    id: 'X20',
+    texto: 'Client Success Specialist📍 Modalidad: 100% remota Ubicaciones: Mexico, Peru, Argentina, Guatemala y Honduras. Horario: Lunes a Viernes. Buscamos un Client Success Specialist apasionado por construir relaciones sólidas, ayudar a los clientes a alcanzar resultados.',
+    acepta: ['es'],
+    crítico: true,
+    resultado: null,
+    nota: 'Título en inglés pero cuerpo en español (Solvo Global). Debe dar es por descripción.',
+  },
+  {
+    id: 'X21',
+    texto: 'Representante de desarrollo de ventas Job Title: Sales Development Representative (SDR) Working Schedule: Full-time | Remote Location: Latin America Role Summary We are seeking a proactive and results-oriented Sales Development Representative (SDR) to join our team and help drive growth for our AI Career Accelerator',
+    acepta: ['en'],
+    crítico: false,
+    resultado: null,
+    nota: 'Título en español pero cuerpo en inglés (Vintti). Debe dar en por descripción.',
+  },
 ];
 
 if (typeof module === 'object' && module.exports) {
