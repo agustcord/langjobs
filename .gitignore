@@ -1,5 +1,16 @@
 # ── Memoria local del proyecto (bóveda Obsidian) — NUNCA subir al repo ──
+# El repo es PÚBLICO: la bóveda contiene log de sesiones, decisiones comerciales
+# y estrategia de precios. Se listan todos los nombres que tuvo la carpeta
+# (incluido el typo "obisidian", que es el nombre actual en disco).
 .memory/
+.extension_linkedin_obisidian/
+.extension_linkedin_obsidian/
+
+# ── Documentos de estrategia comercial generados localmente — NO al repo ──
+# El generador lleva el contenido de la estrategia embebido en el propio
+# script, así que se excluyen tanto el PDF como su generador.
+LangJobs-Canales-Distribucion-Gratuita.pdf
+tools/gen_distrib_pdf.py
 
 # ── Sistema operativo ──
 Thumbs.db
