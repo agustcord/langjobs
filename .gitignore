@@ -1,5 +1,13 @@
 # ── Memoria local del proyecto (bóveda Obsidian) — NUNCA subir al repo ──
+# El repo es PÚBLICO: la bóveda contiene log de sesiones, decisiones comerciales
+# y estrategia de precios. Se listan todos los nombres que tuvo la carpeta
+# (incluido el typo "obisidian", que es el nombre actual en disco).
 .memory/
+.extension_linkedin_obisidian/
+.extension_linkedin_obsidian/
+
+# ── Artefactos de documentos generados localmente ──
+LangJobs-Canales-Distribucion-Gratuita.pdf
 
 # ── Sistema operativo ──
 Thumbs.db
