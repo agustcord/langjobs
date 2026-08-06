@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- Concept 4: Stylized quote marks ES (blue) / EN (green) -->
-  <rect x="24" y="24" width="464" height="464" rx="96" ry="96" fill="#ffffff"/>
-  <!-- Opening quote blue (ES) -->
-  <path d="M 120,160 Q 120,110 170,110 Q 220,110 220,160 Q 220,210 170,210 Q 180,240 140,250 L 140,210 Q 110,205 120,160 Z" fill="#0a66c2"/>
-  <!-- Closing quote green (EN) -->
-  <path d="M 392,352 Q 392,402 342,402 Q 292,402 292,352 Q 292,302 342,302 Q 332,272 372,262 L 372,302 Q 402,307 392,352 Z" fill="#057642"/>
-</svg>

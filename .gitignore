@@ -6,11 +6,21 @@
 .extension_linkedin_obisidian/
 .extension_linkedin_obsidian/
 
-# ── Documentos de estrategia comercial generados localmente — NO al repo ──
+# ── Documentos de estrategia comercial e investigación interna — NO al repo ──
 # El generador lleva el contenido de la estrategia embebido en el propio
-# script, así que se excluyen tanto el PDF como su generador.
+# script, así que se excluyen tanto el PDF como su generador y notas internas.
 LangJobs-Canales-Distribucion-Gratuita.pdf
+LangJobs-Ban-Risk-Investigacion.md
 tools/gen_distrib_pdf.py
+
+# ── Datasets de Beta Testing y pruebas de campo locales ──
+tests/beta_reports*.json
+tests/field_fixtures.json
+tests/baseline_snapshot.json
+
+# ── Borradores de diseño y conceptos de íconos ──
+tools/icon_concepts/
+icono-langjobs-inskape.svg
 
 # ── Sistema operativo ──
 Thumbs.db
@@ -36,3 +46,4 @@ dist/
 # ── Secretos / entorno ──
 .env
 *.key
+
