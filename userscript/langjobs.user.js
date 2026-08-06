@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.5.4
+// @version      0.5.5
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -411,25 +411,14 @@
     if (strong && strong.textContent && strong.textContent.trim()) {
       return strong.textContent.replace(/\s+/g, ' ').trim();
     }
-    // CAPA M4 (UI 2026): el título viaja en el aria-label del botón ✕.
-    // Va ANTES del fallback genérico de <a> porque en la UI 2026 el único <a>
-    // que puede haber dentro de la tarjeta es el logo/CTA de la empresa.
-    const dismissBtn = card.querySelector('button[aria-label^="Descartar empleo"]') ||
-                       card.querySelector('button[aria-label^="Descartar el empleo"]') ||
-                       card.querySelector('button[aria-label^="Dismiss job"]') ||
-                       card.querySelector('button[aria-label^="Ocultar empleo"]');
+    // CAPA M4 (UI 2026): el título viaja en el aria-label del botón ✕
+    // ("Descartar empleo «Título»"). Va ANTES del fallback genérico de <a>
+    // porque en la UI 2026 el único <a> que puede haber dentro de la tarjeta es
+    // el logo/CTA de la empresa.
+    const dismissBtn = card.querySelector(DISMISS_SEL_S);
     if (dismissBtn) {
-      const aria = dismissBtn.getAttribute('aria-label') || '';
-      // "Descartar empleo «Título del Empleo»" → extraer entre « » (o comillas)
-      const match = aria.match(/[«“"'‘](.+?)[»”"'’]/);
-      if (match && match[1]) return match[1].trim();
-      // Fallback: quitar el prefijo conocido
-      const cleaned = aria
-        .replace(/^Descartar (el )?empleo\s*/i, '')
-        .replace(/^Ocultar empleo\s*/i, '')
-        .replace(/^Dismiss job\s*/i, '')
-        .trim();
-      if (cleaned) return cleaned;
+      const fromAria = titleFromDismissAria(dismissBtn);
+      if (fromAria) return fromAria;
     }
     // NUEVA CAPA M3: buscar enlace directamente usando el anclaje
     const anyA = card.querySelector('a[href*="/jobs/view/"], a[href*="currentJobId="]') || card.querySelector('a');
@@ -715,6 +704,76 @@
     return null;
   }
 
+  // Selector compartido del botón ✕ (único ancla estable de la UI 2026).
+  const DISMISS_SEL_S =
+    'button[aria-label^="Descartar empleo"], button[aria-label^="Descartar el empleo"], ' +
+    'button[aria-label^="Dismiss job"], button[aria-label^="Ocultar empleo"]';
+
+  function titleFromDismissAria(btn) {
+    if (!btn || !btn.getAttribute) return '';
+    const aria = btn.getAttribute('aria-label') || '';
+    const m = aria.match(/[«“"'‘](.+?)[»”"'’]/);
+    if (m && m[1]) return m[1].trim();
+    return aria
+      .replace(/^Descartar (el )?empleo\s*/i, '')
+      .replace(/^Ocultar empleo\s*/i, '')
+      .replace(/^Dismiss job\s*/i, '')
+      .trim();
+  }
+
+  // Título de la vacante ABIERTA en el panel derecho (v0.5.5).
+  // Necesario porque en la UI 2026 las tarjetas de la lista no tienen jobId:
+  // el emparejamiento tarjeta ↔ panel se hace por título.
+  function getDetailTitle(root) {
+    if (!root || !root.querySelector) return '';
+
+    // Capa 1 (legacy): clases del top-card del panel de detalle.
+    const legacy = root.querySelector(
+      '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, .jobs-details-top-card__job-title'
+    );
+    if (legacy && legacy.textContent && legacy.textContent.trim()) return cleanText(legacy.textContent);
+
+    // Capa 2 (2026 + legacy): el único <a> a /jobs/view/ vive en el panel.
+    const link = root.querySelector('a[href*="/jobs/view/"]');
+    if (link) {
+      const t = cleanText(link.textContent);
+      if (t) return t;
+      const aria = link.getAttribute && link.getAttribute('aria-label');
+      if (aria && aria.trim()) return cleanText(aria);
+    }
+
+    // Capa 3 (2026): el ✕ del panel es el que comparte ancestro con el cuerpo
+    // de la descripción, y su ancestro contiene UN SOLO ✕ (los de la lista van
+    // de a uno por tarjeta, en otra rama del DOM).
+    const body = root.querySelector('#job-details, .jobs-description, .jobs-description__content');
+    if (body) {
+      let node = body.parentElement;
+      for (let hops = 0; node && hops < 6; hops++) {
+        if (node.querySelectorAll && node.querySelectorAll(DISMISS_SEL_S).length === 1) {
+          const t = titleFromDismissAria(node.querySelector(DISMISS_SEL_S));
+          if (t) return cleanText(t);
+        }
+        node = node.parentElement;
+      }
+    }
+    return '';
+  }
+
+  // Empresa de la vacante abierta en el panel (desempate de títulos repetidos).
+  function getDetailCompany(root) {
+    if (!root || !root.querySelector) return '';
+    const legacy = root.querySelector(
+      '.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name'
+    );
+    if (legacy && legacy.textContent && legacy.textContent.trim()) return cleanText(legacy.textContent);
+    const link = root.querySelector('a[href*="/company/"]');
+    if (link) {
+      const t = cleanText(link.textContent);
+      if (t && t.length < 80) return t;
+    }
+    return '';
+  }
+
   // Texto del panel de detalle (columna derecha) para la vacante activa.
   // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
   function getDetailDescription(root) {
@@ -905,6 +964,8 @@
     descriptionFromDetail: descriptionFromDetail,
     extractDescriptionFromHTML: extractDescriptionFromHTML,
     getActiveJobId: getActiveJobId,
+    getDetailTitle: getDetailTitle,
+    getDetailCompany: getDetailCompany,
     getDetailDescription: getDetailDescription,
     scanJobs: scanJobs,
     detect: detect,
@@ -958,6 +1019,24 @@
   };
   const STYLE_ID = 'llf-styles';
 
+  // ── Clave de caché de idioma por tarjeta (v0.5.5) ──────────────────────────
+  // La UI 2026 no expone el jobId en las tarjetas de la lista, así que la caché
+  // no puede indexarse solo por él: sin clave, el idioma resuelto al abrir la
+  // vacante (que sí se lee bien del panel derecho) se perdía y la tarjeta
+  // quedaba en '??' para siempre. Fallback: título+empresa normalizados.
+  function normKey(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+  function cacheKeyOf(data) {
+    if (!data) return '';
+    if (data.jobId) return String(data.jobId);
+    const t = normKey(data.title);
+    // Un título demasiado corto no es una clave fiable (colisiones entre
+    // vacantes distintas). Mejor no cachear que cachear mal.
+    if (t.length < 6) return '';
+    return 't:' + t + '|' + normKey(data.company);
+  }
+
   // ── Hash de contenido de una tarjeta (para detectar nodos reciclados) ──────
   // LinkedIn recicla los mismos nodos del DOM al hacer scroll: el jobId cambia
   // pero el nodo persiste. El hash (jobId|título|empresa) permite re-procesar
@@ -968,16 +1047,45 @@
   function hashOf(card, doc) {
     const d = selectors.extractFromCard(card);
     let h = (d.jobId || '') + '|' + (d.title || '').slice(0, 60) + '|' + (d.company || '').slice(0, 60);
-    if (d.jobId && FETCH_CACHE[d.jobId]) {
-      h += '|CACHE:' + FETCH_CACHE[d.jobId];
+    const ck = cacheKeyOf(d);
+    if (ck && FETCH_CACHE[ck]) {
+      // Incluir el idioma cacheado en el hash es lo que dispara el
+      // re-etiquetado: al resolverse la vacante, el hash cambia y processCard
+      // deja de reusar el '??' anterior.
+      h += '|CACHE:' + FETCH_CACHE[ck];
     } else {
       const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-      if (document && selectors.getActiveJobId && selectors.getActiveJobId(document) === d.jobId) {
-        const desc = selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
-        if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
-      }
+      const desc = panelDescriptionFor(card, d, document);
+      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     }
     return h;
+  }
+
+  // ── Emparejamiento tarjeta ↔ panel de detalle (v0.5.5) ─────────────────────
+  // Devuelve la descripción del panel derecho SOLO si corresponde a ESTA
+  // tarjeta. Lo usan hashOf() y makeGetDescription() a propósito: si los dos no
+  // aplican exactamente el mismo criterio, el hash no cambia al abrir la
+  // vacante, processCard reusa el '??' previo y tagCard nunca corre.
+  function panelDescriptionFor(card, data, document) {
+    if (!card || !data || !document || !selectors.getDetailDescription) return '';
+
+    // Ruta A (UI legacy / panel): coincidencia por jobId.
+    if (data.jobId) {
+      if (!selectors.getActiveJobId) return '';
+      return (selectors.getActiveJobId(document) === data.jobId)
+        ? selectors.getDetailDescription(document)
+        : '';
+    }
+
+    // Ruta B (UI 2026): la tarjeta de la lista no expone jobId → emparejar por
+    // título, con la empresa como desempate cuando ambas se conocen.
+    if (!selectors.getDetailTitle) return '';
+    const panelTitle = normKey(selectors.getDetailTitle(document));
+    if (!panelTitle || normKey(data.title) !== panelTitle) return '';
+    const panelCompany = normKey(selectors.getDetailCompany ? selectors.getDetailCompany(document) : '');
+    const cardCompany = normKey(data.company);
+    if (panelCompany && cardCompany && panelCompany !== cardCompany) return '';
+    return selectors.getDetailDescription(document);
   }
 
   // ── getDescription para el panel de detalle (T1.9) ─────────────────────────
@@ -987,9 +1095,12 @@
   function makeGetDescription(doc) {
     return function (jobId, card) {
       const document = doc || (card && card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-      if (!document || !selectors.getActiveJobId) return '';
-      if (selectors.getActiveJobId(document) !== jobId) return '';
-      return selectors.getDetailDescription ? selectors.getDetailDescription(document) : '';
+      if (!document) return '';
+      if (!card) return '';
+      // Mismo criterio que hashOf() — ver panelDescriptionFor().
+      const data = selectors.extractFromCard(card);
+      if (jobId && !data.jobId) data.jobId = jobId;
+      return panelDescriptionFor(card, data, document);
     };
   }
 
@@ -1068,18 +1179,22 @@
           data.lang = descRes.lang;
           data.isAmbiguous = false;
           data.langSource = 'description';
-          if (data.jobId) FETCH_CACHE[data.jobId] = descRes.lang;
-          _dbg('  → FINAL from description:', data.lang, '(FETCH_CACHE set)');
+          // v0.5.5: la clave cae a título+empresa cuando no hay jobId (UI 2026),
+          // así lo resuelto al abrir la vacante persiste en su tarjeta.
+          const ck1 = cacheKeyOf(data);
+          if (ck1) FETCH_CACHE[ck1] = descRes.lang;
+          _dbg('  → FINAL from description:', data.lang, '(FETCH_CACHE key:', ck1 + ')');
           return data;
         }
       }
     }
 
-    // 2. Capa de caché en memoria de fetch previa
-    if (data.jobId && FETCH_CACHE[data.jobId]) {
-      data.lang = FETCH_CACHE[data.jobId];
-      data.langSource = 'async-fetch';
-      _dbg('  → FETCH_CACHE hit:', data.lang);
+    // 2. Capa de caché en memoria (fetch previo o panel ya leído)
+    const ck2 = cacheKeyOf(data);
+    if (ck2 && FETCH_CACHE[ck2]) {
+      data.lang = FETCH_CACHE[ck2];
+      data.langSource = (ck2.indexOf('t:') === 0) ? 'panel-cache' : 'async-fetch';
+      _dbg('  → FETCH_CACHE hit:', data.lang, '(key:', ck2 + ')');
       return data;
     }
 
@@ -1796,7 +1911,7 @@
             ? LangJobsApp.getDomCards(document)
             : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
-          lines.push('LangJobs DEBUG v0.5.4 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.5.5 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

@@ -299,6 +299,92 @@ check('el badge del panel derecho no está dentro de una tarjeta de la lista',
   pane.querySelectorAll('.llf-badge').length === 1,
   'badges en panel=' + pane.querySelectorAll('.llf-badge').length);
 
+// ── Escenario 4: resolver un '??' al abrir la vacante (v0.5.5) ─────────────
+// Sin jobId en la tarjeta, el idioma leído del panel derecho se perdía: el
+// panel decía ES/EN y la tarjeta de la lista se quedaba en '??' para siempre.
+// Ahora la caché cae a título+empresa y el emparejamiento tarjeta ↔ panel se
+// hace por título.
+console.log('\n═══ UI 2026: tarjeta «??» resuelta al abrir la vacante ═══');
+const AMB = { title: 'Tech Lead', company: 'Kunan', meta: 'Rosario, Santa Fe (Híbrido)' };
+const s4 = buildDom2026();
+const win4 = s4.dom.window;
+global.window = win4;
+global.document = win4.document;
+
+// Tarjeta ambigua: título con rol EN + modalidad híbrida → el detector la marca
+// isAmbiguous → '??' (y sin jobId no puede dispararse el fetch de la Capa 4).
+(function addAmbiguousCard() {
+  const doc = s4.doc;
+  const w = doc.createElement('div');
+  w.setAttribute('style', 'display:contents');
+  const card = doc.createElement('div');
+  card.setAttribute('data-test-card', 'amb');
+  w.appendChild(card);
+  const inner = doc.createElement('div');
+  card.appendChild(inner);
+  const pT = doc.createElement('p'); pT.textContent = AMB.title; inner.appendChild(pT);
+  const pC = doc.createElement('p'); pC.textContent = AMB.company; inner.appendChild(pC);
+  const pM = doc.createElement('p'); pM.textContent = AMB.meta; inner.appendChild(pM);
+  const btn = doc.createElement('button');
+  btn.setAttribute('aria-label', 'Descartar empleo «' + AMB.title + '»');
+  inner.appendChild(btn);
+  s4.list.appendChild(w);
+})();
+
+const getDesc4 = APP.makeGetDescription(s4.doc);
+APP.processAll(s4.doc, { getDescription: getDesc4 });
+const ambCard = s4.doc.querySelector('[data-test-card="amb"]');
+check('la tarjeta ambigua arranca en «??» (sin jobId no hay Capa 4)',
+  ambCard && ambCard.getAttribute('data-llf-lang') === 'unknown',
+  'lang=' + (ambCard && ambCard.getAttribute('data-llf-lang')));
+
+// El usuario abre esa vacante: el panel derecho muestra la descripción en ES.
+const pane4 = s4.doc.createElement('div');
+const top4 = s4.doc.createElement('div');
+const dis4 = s4.doc.createElement('button');
+dis4.setAttribute('aria-label', 'Descartar empleo «' + AMB.title + '»');
+top4.appendChild(dis4);
+const comp4 = s4.doc.createElement('a');
+comp4.setAttribute('href', '/company/kunan/');
+comp4.textContent = AMB.company;
+top4.appendChild(comp4);
+const body4 = s4.doc.createElement('div');
+body4.id = 'job-details';
+body4.textContent = 'Buscamos un referente técnico para liderar el equipo de desarrollo. ' +
+  'Vas a trabajar con el equipo de producto en la definición de la arquitectura y en ' +
+  'el acompañamiento de las personas del equipo. Se ofrece contratación en relación de dependencia.';
+pane4.appendChild(top4);
+pane4.appendChild(body4);
+s4.doc.body.firstChild.appendChild(pane4);
+
+check('getDetailTitle() lee el título del panel sin clases semánticas',
+  SEL.getDetailTitle(s4.doc) === AMB.title,
+  JSON.stringify(SEL.getDetailTitle(s4.doc)));
+check('getDetailCompany() lee la empresa del panel',
+  SEL.getDetailCompany(s4.doc) === AMB.company,
+  JSON.stringify(SEL.getDetailCompany(s4.doc)));
+
+APP.processAll(s4.doc, { getDescription: APP.makeGetDescription(s4.doc) });
+check('al abrir la vacante, la tarjeta de la lista pasa de «??» a «es»',
+  ambCard.getAttribute('data-llf-lang') === 'es',
+  'lang=' + ambCard.getAttribute('data-llf-lang'));
+check('el badge de la tarjeta muestra ES',
+  ambCard.querySelector('.llf-badge .llf-badge-label') &&
+  ambCard.querySelector('.llf-badge .llf-badge-label').textContent === 'ES',
+  ambCard.querySelector('.llf-badge') && ambCard.querySelector('.llf-badge').textContent);
+
+// La resolución debe PERSISTIR aunque el usuario cierre el panel (caché por título).
+if (pane4.parentNode) pane4.parentNode.removeChild(pane4);
+APP.processAll(s4.doc, { getDescription: APP.makeGetDescription(s4.doc) });
+check('la resolución persiste tras cerrar el panel (caché por título+empresa)',
+  ambCard.getAttribute('data-llf-lang') === 'es',
+  'lang=' + ambCard.getAttribute('data-llf-lang'));
+
+// Una vacante distinta con el MISMO título pero otra empresa no debe heredarla.
+const other = SEL.extractFromCard(ambCard);
+check('la clave de caché incluye la empresa (no colisiona por título suelto)',
+  other.company === AMB.company, JSON.stringify(other.company));
+
 console.log('\n────────────────────────────────────────');
 console.log('  ' + pass + ' ok, ' + fail + ' fallo(s)');
 console.log('────────────────────────────────────────\n');

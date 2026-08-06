@@ -11,6 +11,8 @@
  *   2. Pegar TODO este archivo y Enter.
  *   3. Comandos extra:
  *        __LJF_DIAG.run()                  → repetir el informe
+ *        __LJF_DIAG.lines()                → ¿hay texto aprovechable en la tarjeta?
+ *        __LJF_DIAG.internals()            → ¿el jobId vive en los internals del framework?
  *        __LJF_DIAG.trace('MKT Digital')   → cadena de ancestros de una tarjeta
  *        __LJF_DIAG.ids()                  → buscar ids de vacante en atributos
  *        __LJF_DIAG.mark()                 → pintar borde rojo en cada tarjeta
@@ -246,6 +248,175 @@
     return rows;
   }
 
+  // ── Medición: ¿cuánto texto APROVECHABLE tiene la tarjeta? ────────────────
+  // Hoy el detector recibe solo título + empresa. El resto del texto de la
+  // tarjeta es chrome de UI (está en el idioma de la interfaz, así que sesgaría
+  // la detección). Esto mide si hay alguna línea con texto REAL del aviso
+  // (preview de descripción, insight) que se pueda sumar como señal.
+  var UI_NOISE = /^(promocionado|promoted|patrocinad|postulaci[oó]n sencilla|solicitud sencilla|easy apply|guardar|guardado|save|saved|nuevo|new|verificado|verified|visto|viewed|ver empleo|ver oferta|contrataci[oó]n activa|revisado por|respuesta|se busca|hace \d|\d+ (d[ií]a|hora|semana|mes|day|hour|week|month)|candidat|solicitante|applicant|es|en|\?\?)/i;
+  var META_RE = /(remoto|remote|h[íi]brido|hybrid|presencial|on-?site|jornada|full[- ]time|part[- ]time|contrato|pasant[ií]a|internship)/i;
+
+  function leafLines(card) {
+    var out = [];
+    var nodes = card.querySelectorAll('p, span, div, strong, h1, h2, h3, li');
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n.children && n.children.length > 0) continue;
+      if (n.closest && n.closest('button, .llf-badge')) continue;
+      var t = (n.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!t || t.length > 400) continue;
+      if (out.indexOf(t) === -1) out.push(t);
+    }
+    return out;
+  }
+
+  function lines(limit) {
+    var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
+    if (!cards.length) { console.warn('sin tarjetas'); return []; }
+    var rows = [];
+    var extras = [];
+    var cardsWithExtra = 0;
+
+    cards.slice(0, limit || cards.length).forEach(function (card, ci) {
+      var title = titleOf(card).replace(/\s+/g, ' ').trim();
+      var ls = leafLines(card);
+      var seenTitle = false;
+      var companyTaken = false;
+      var extraEnEstaTarjeta = 0;
+
+      ls.forEach(function (t, li) {
+        var tipo;
+        if (title && (t === title || t.indexOf(title) === 0)) { tipo = 'TÍTULO'; seenTitle = true; }
+        else if (UI_NOISE.test(t)) tipo = 'ruido UI';
+        else if (META_RE.test(t) || /[()]/.test(t) || /^\d/.test(t)) tipo = 'ubic/meta';
+        else if (seenTitle && !companyTaken) { tipo = 'EMPRESA'; companyTaken = true; }
+        else { tipo = '★ EXTRA'; extraEnEstaTarjeta++; extras.push(t); }
+        rows.push({ '#': ci, línea: li, tipo: tipo, chars: t.length, texto: t.slice(0, 70) });
+      });
+      if (extraEnEstaTarjeta > 0) cardsWithExtra++;
+    });
+
+    console.log('%c Texto por tarjeta (★ EXTRA = señal potencialmente aprovechable) ',
+      'background:#0a66c2;color:#fff;font-weight:700');
+    console.table(rows);
+
+    var totalChars = extras.reduce(function (a, t) { return a + t.length; }, 0);
+    console.log('%c RESULTADO DE LA MEDICIÓN ', 'background:#111;color:#fff;font-weight:700');
+    console.log('Tarjetas analizadas:        ', Math.min(cards.length, limit || cards.length));
+    console.log('Tarjetas con línea ★ EXTRA: ', cardsWithExtra);
+    console.log('Líneas ★ EXTRA totales:     ', extras.length, '(' + totalChars + ' chars)');
+    if (extras.length) {
+      console.log('Muestras ★ EXTRA:');
+      extras.slice(0, 12).forEach(function (t) { console.log('   ·', t.slice(0, 120)); });
+      console.log('%c → Revisar si es texto DEL AVISO (sirve) o de la interfaz (sesga: NO usar).',
+        'color:#b45309;font-weight:700');
+    } else {
+      console.log('%c → No hay texto extra: la tarjeta solo ofrece título + empresa + metadatos.',
+        'color:#b45309;font-weight:700');
+      console.log('   Conclusión: el idioma de las «??» solo se resuelve con la descripción');
+      console.log('   (abrir la vacante, o recuperar el jobId → __LJF_DIAG.internals()).');
+    }
+    return { cardsWithExtra: cardsWithExtra, extras: extras };
+  }
+
+  // ── Probe: ¿el jobId vive en los internals del framework? ─────────────────
+  // Si aparece, se puede reactivar la Capa 4 (fetch de la descripción) para
+  // TODAS las tarjetas. Ojo: en la extensión esto exige un script en
+  // world:"MAIN" (el world aislado no ve los expandos de la página); en el
+  // userscript de Tampermonkey ya corre en el world correcto.
+  function internals(maxCards) {
+    var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
+    if (!cards.length) { console.warn('sin tarjetas'); return []; }
+
+    // Acepta urn:li:jobPosting:, urn:li:fs_jobPosting:, urn:li:fsd_jobPosting:
+    // y variantes (LinkedIn cambió el prefijo entre versiones de Voyager).
+    var URN_RE = /urn:li:[a-z_]*job[a-z]*:(\d{5,14})/i;
+    var KEY_RE = /(job.?id|jobposting|entityurn|objecturn|trackingid|reference|preDashEntityUrn)/i;
+    var findings = [];
+
+    function scan(root, rootLabel, cardIdx) {
+      var seen = new Set();
+      var queue = [{ v: root, path: rootLabel, d: 0 }];
+      var budget = 4000;
+      while (queue.length && budget-- > 0) {
+        var it = queue.shift();
+        var v = it.v;
+        if (v == null || it.d > 6) continue;
+        var t = typeof v;
+        if (t === 'string') {
+          var m = v.match(URN_RE);
+          if (m) findings.push({ tarjeta: cardIdx, jobId: m[1], vía: 'urn', path: it.path, valor: v.slice(0, 70) });
+          else if (/^\d{7,14}$/.test(v) && KEY_RE.test(it.path)) {
+            findings.push({ tarjeta: cardIdx, jobId: v, vía: 'clave+dígitos', path: it.path, valor: v });
+          }
+          continue;
+        }
+        if (t === 'number') {
+          if (v > 1e6 && KEY_RE.test(it.path)) {
+            findings.push({ tarjeta: cardIdx, jobId: String(v), vía: 'clave+número', path: it.path, valor: String(v) });
+          }
+          continue;
+        }
+        if (t !== 'object') continue;
+        if (v.nodeType) continue;              // no bajar al DOM
+        if (seen.has(v)) continue;
+        seen.add(v);
+        var keys;
+        try { keys = Object.keys(v); } catch (e) { continue; }
+        for (var i = 0; i < keys.length && i < 60; i++) {
+          var k = keys[i];
+          if (k === 'return' || k === '_owner' || k === 'stateNode' || k === 'alternate') continue; // ciclos de React
+          var val;
+          try { val = v[k]; } catch (e) { continue; }
+          queue.push({ v: val, path: it.path + '.' + k, d: it.d + 1 });
+        }
+      }
+    }
+
+    var expandoReport = [];
+    cards.slice(0, maxCards || 3).forEach(function (card, ci) {
+      var nodes = [card].concat(Array.prototype.slice.call(card.querySelectorAll('*')).slice(0, 40));
+      nodes.forEach(function (n) {
+        var keys;
+        try { keys = Object.keys(n); } catch (e) { return; }
+        keys.forEach(function (k) {
+          if (k.indexOf('__') !== 0 && !/react|ember|vue|svelte/i.test(k)) return;
+          expandoReport.push({ tarjeta: ci, nodo: desc(n), expando: k });
+          try { scan(n[k], k, ci); } catch (e) {}
+        });
+      });
+    });
+
+    console.log('%c Internals del framework en las tarjetas ', 'background:#0a66c2;color:#fff;font-weight:700');
+    if (!expandoReport.length) {
+      console.log('%c FALLA %c No se encontró NINGÚN expando (__reactProps$, __ember, …).',
+        'background:#dc2626;color:#fff;font-weight:700', '');
+      console.log('Dos explicaciones posibles:');
+      console.log('  1. Estás pegando esto en un world AISLADO (no debería pasar en la consola normal).');
+      console.log('  2. LinkedIn no deja props del framework en los nodos → el jobId no se puede recuperar por esta vía.');
+      console.log('Probá también, con una tarjeta seleccionada en Elements:  Object.keys($0)');
+      return [];
+    }
+    console.table(expandoReport.slice(0, 20));
+
+    var uniq = [];
+    findings.forEach(function (f) {
+      if (!uniq.some(function (u) { return u.tarjeta === f.tarjeta && u.jobId === f.jobId; })) uniq.push(f);
+    });
+    if (uniq.length) {
+      console.log('%c OK  %c jobId RECUPERABLE desde los internals — ' + uniq.length + ' hallazgo(s)',
+        'background:#16a34a;color:#fff;font-weight:700', '');
+      console.table(uniq.slice(0, 20));
+      console.log('Siguiente paso: implementar la lectura en el userscript (ya corre en el main world)');
+      console.log('y evaluar world:"MAIN" para la extensión. Reactiva la Capa 4 en TODAS las tarjetas.');
+    } else {
+      console.log('%c FALLA %c Hay expandos pero ningún jobId/urn adentro (profundidad 6, 4000 nodos).',
+        'background:#dc2626;color:#fff;font-weight:700', '');
+      console.log('Queda la vía de interceptar la respuesta de la API interna que LinkedIn ya pidió.');
+    }
+    return uniq;
+  }
+
   function mark() {
     var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
     cards.forEach(function (c, i) {
@@ -261,8 +432,12 @@
     return cards.length;
   }
 
-  var api = { run: run, trace: trace, ids: ids, ariaLabels: ariaLabels, mark: mark, getDomCards: getDomCards, cards: [] };
+  var api = {
+    run: run, trace: trace, ids: ids, ariaLabels: ariaLabels, mark: mark,
+    lines: lines, internals: internals,
+    getDomCards: getDomCards, cards: [],
+  };
   window.__LJF_DIAG = api;
   run();
-  console.log('Comandos: __LJF_DIAG.run() | .trace("texto del título") | .ids() | .ariaLabels() | .mark()');
+  console.log('Comandos: __LJF_DIAG.run() | .lines() | .internals() | .trace("texto del título") | .ids() | .ariaLabels() | .mark()');
 })();
