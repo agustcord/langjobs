@@ -52,25 +52,14 @@
     if (strong && strong.textContent && strong.textContent.trim()) {
       return strong.textContent.replace(/\s+/g, ' ').trim();
     }
-    // CAPA M4 (UI 2026): el título viaja en el aria-label del botón ✕.
-    // Va ANTES del fallback genérico de <a> porque en la UI 2026 el único <a>
-    // que puede haber dentro de la tarjeta es el logo/CTA de la empresa.
-    const dismissBtn = card.querySelector('button[aria-label^="Descartar empleo"]') ||
-                       card.querySelector('button[aria-label^="Descartar el empleo"]') ||
-                       card.querySelector('button[aria-label^="Dismiss job"]') ||
-                       card.querySelector('button[aria-label^="Ocultar empleo"]');
+    // CAPA M4 (UI 2026): el título viaja en el aria-label del botón ✕
+    // ("Descartar empleo «Título»"). Va ANTES del fallback genérico de <a>
+    // porque en la UI 2026 el único <a> que puede haber dentro de la tarjeta es
+    // el logo/CTA de la empresa.
+    const dismissBtn = card.querySelector(DISMISS_SEL_S);
     if (dismissBtn) {
-      const aria = dismissBtn.getAttribute('aria-label') || '';
-      // "Descartar empleo «Título del Empleo»" → extraer entre « » (o comillas)
-      const match = aria.match(/[«“"'‘](.+?)[»”"'’]/);
-      if (match && match[1]) return match[1].trim();
-      // Fallback: quitar el prefijo conocido
-      const cleaned = aria
-        .replace(/^Descartar (el )?empleo\s*/i, '')
-        .replace(/^Ocultar empleo\s*/i, '')
-        .replace(/^Dismiss job\s*/i, '')
-        .trim();
-      if (cleaned) return cleaned;
+      const fromAria = titleFromDismissAria(dismissBtn);
+      if (fromAria) return fromAria;
     }
     // NUEVA CAPA M3: buscar enlace directamente usando el anclaje
     const anyA = card.querySelector('a[href*="/jobs/view/"], a[href*="currentJobId="]') || card.querySelector('a');
@@ -356,6 +345,76 @@
     return null;
   }
 
+  // Selector compartido del botón ✕ (único ancla estable de la UI 2026).
+  const DISMISS_SEL_S =
+    'button[aria-label^="Descartar empleo"], button[aria-label^="Descartar el empleo"], ' +
+    'button[aria-label^="Dismiss job"], button[aria-label^="Ocultar empleo"]';
+
+  function titleFromDismissAria(btn) {
+    if (!btn || !btn.getAttribute) return '';
+    const aria = btn.getAttribute('aria-label') || '';
+    const m = aria.match(/[«“"'‘](.+?)[»”"'’]/);
+    if (m && m[1]) return m[1].trim();
+    return aria
+      .replace(/^Descartar (el )?empleo\s*/i, '')
+      .replace(/^Ocultar empleo\s*/i, '')
+      .replace(/^Dismiss job\s*/i, '')
+      .trim();
+  }
+
+  // Título de la vacante ABIERTA en el panel derecho (v0.5.5).
+  // Necesario porque en la UI 2026 las tarjetas de la lista no tienen jobId:
+  // el emparejamiento tarjeta ↔ panel se hace por título.
+  function getDetailTitle(root) {
+    if (!root || !root.querySelector) return '';
+
+    // Capa 1 (legacy): clases del top-card del panel de detalle.
+    const legacy = root.querySelector(
+      '.job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, .jobs-details-top-card__job-title'
+    );
+    if (legacy && legacy.textContent && legacy.textContent.trim()) return cleanText(legacy.textContent);
+
+    // Capa 2 (2026 + legacy): el único <a> a /jobs/view/ vive en el panel.
+    const link = root.querySelector('a[href*="/jobs/view/"]');
+    if (link) {
+      const t = cleanText(link.textContent);
+      if (t) return t;
+      const aria = link.getAttribute && link.getAttribute('aria-label');
+      if (aria && aria.trim()) return cleanText(aria);
+    }
+
+    // Capa 3 (2026): el ✕ del panel es el que comparte ancestro con el cuerpo
+    // de la descripción, y su ancestro contiene UN SOLO ✕ (los de la lista van
+    // de a uno por tarjeta, en otra rama del DOM).
+    const body = root.querySelector('#job-details, .jobs-description, .jobs-description__content');
+    if (body) {
+      let node = body.parentElement;
+      for (let hops = 0; node && hops < 6; hops++) {
+        if (node.querySelectorAll && node.querySelectorAll(DISMISS_SEL_S).length === 1) {
+          const t = titleFromDismissAria(node.querySelector(DISMISS_SEL_S));
+          if (t) return cleanText(t);
+        }
+        node = node.parentElement;
+      }
+    }
+    return '';
+  }
+
+  // Empresa de la vacante abierta en el panel (desempate de títulos repetidos).
+  function getDetailCompany(root) {
+    if (!root || !root.querySelector) return '';
+    const legacy = root.querySelector(
+      '.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name'
+    );
+    if (legacy && legacy.textContent && legacy.textContent.trim()) return cleanText(legacy.textContent);
+    const link = root.querySelector('a[href*="/company/"]');
+    if (link) {
+      const t = cleanText(link.textContent);
+      if (t && t.length < 80) return t;
+    }
+    return '';
+  }
+
   // Texto del panel de detalle (columna derecha) para la vacante activa.
   // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
   function getDetailDescription(root) {
@@ -546,6 +605,8 @@
     descriptionFromDetail: descriptionFromDetail,
     extractDescriptionFromHTML: extractDescriptionFromHTML,
     getActiveJobId: getActiveJobId,
+    getDetailTitle: getDetailTitle,
+    getDetailCompany: getDetailCompany,
     getDetailDescription: getDetailDescription,
     scanJobs: scanJobs,
     detect: detect,
