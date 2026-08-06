@@ -22,7 +22,20 @@
  * Uso: node tests/dom_2026_cards.js
  */
 const path = require('path');
-const { JSDOM } = require('jsdom');
+
+// jsdom es la ÚNICA dependencia de desarrollo del proyecto y no viaja en el
+// build (los bundles siguen sin dependencias). Si no está instalada, este
+// harness se saltea en vez de fallar: `node tests/run.js` (corpus del detector)
+// sigue corriendo con cero dependencias.  Instalar con:  npm i -D jsdom
+let JSDOM;
+try {
+  JSDOM = require('jsdom').JSDOM;
+} catch (e) {
+  console.log('\nSKIP tests/dom_2026_cards.js — falta jsdom (npm i -D jsdom).');
+  console.log('     El harness del DOM 2026 necesita getComputedStyle para detectar');
+  console.log('     los wrappers display:contents de LinkedIn.\n');
+  process.exit(0);
+}
 
 const APP = require(path.join(__dirname, '..', 'src', 'app.js'));
 const SEL = require(path.join(__dirname, '..', 'src', 'selectors.js'));
