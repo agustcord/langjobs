@@ -52,17 +52,103 @@
     if (strong && strong.textContent && strong.textContent.trim()) {
       return strong.textContent.replace(/\s+/g, ' ').trim();
     }
-    const anyA = card.querySelector('a');
+    // CAPA M4 (UI 2026): el título viaja en el aria-label del botón ✕.
+    // Va ANTES del fallback genérico de <a> porque en la UI 2026 el único <a>
+    // que puede haber dentro de la tarjeta es el logo/CTA de la empresa.
+    const dismissBtn = card.querySelector('button[aria-label^="Descartar empleo"]') ||
+                       card.querySelector('button[aria-label^="Descartar el empleo"]') ||
+                       card.querySelector('button[aria-label^="Dismiss job"]') ||
+                       card.querySelector('button[aria-label^="Ocultar empleo"]');
+    if (dismissBtn) {
+      const aria = dismissBtn.getAttribute('aria-label') || '';
+      // "Descartar empleo «Título del Empleo»" → extraer entre « » (o comillas)
+      const match = aria.match(/[«“"'‘](.+?)[»”"'’]/);
+      if (match && match[1]) return match[1].trim();
+      // Fallback: quitar el prefijo conocido
+      const cleaned = aria
+        .replace(/^Descartar (el )?empleo\s*/i, '')
+        .replace(/^Ocultar empleo\s*/i, '')
+        .replace(/^Dismiss job\s*/i, '')
+        .trim();
+      if (cleaned) return cleaned;
+    }
+    // NUEVA CAPA M3: buscar enlace directamente usando el anclaje
+    const anyA = card.querySelector('a[href*="/jobs/view/"], a[href*="currentJobId="]') || card.querySelector('a');
     if (anyA) {
       const t = (anyA.textContent || '').replace(/\s+/g, ' ').trim();
       if (t) return t;
     }
+    // CAPA M4 (2026): primer <p> con texto sustancial como último recurso,
+    // saltando el ruido de UI ("Promocionado", "Postulación sencilla", …).
+    var allP = card.querySelectorAll('p');
+    for (var pi = 0; pi < allP.length; pi++) {
+      var ptxt = (allP[pi].textContent || '').replace(/\s+/g, ' ').trim();
+      if (ptxt.length <= 3 || ptxt.length >= 120) continue;
+      if (UI_NOISE_RE.test(ptxt)) continue;
+      return ptxt;
+    }
     return '';
   }
 
+  // Ruido de UI de LinkedIn (siempre en el idioma de la interfaz, NUNCA del
+  // aviso): si se colara en el texto a clasificar sesgaría el detector.
+  const UI_NOISE_RE = new RegExp(
+    '^(promocionado|promoted|patrocinad|postulación sencilla|postulacion sencilla|solicitud sencilla|' +
+    'easy apply|guardar|guardado|save|saved|nuevo|new|verificado|verified|visto|viewed|' +
+    'ver empleo|ver oferta|contratación activa|contratacion activa|actively (reviewing|hiring)|' +
+    'revisado por|respuesta|se busca|hace \\d|\\d+ (día|dia|hora|semana|mes|day|hour|week|month)|' +
+    'candidat|solicitante|applicant|es|en|\\?\\?)$', 'i'
+  );
+
+  // Una "línea" = texto de un elemento hoja visible de la tarjeta, en orden DOM.
+  // Es la única forma de leer título/empresa en la UI 2026: las clases CSS están
+  // ofuscadas y no hay <a> ni atributos semánticos dentro de la tarjeta.
+  function textLinesFromCard(card) {
+    if (!card || !card.querySelectorAll) return [];
+    const out = [];
+    const nodes = card.querySelectorAll('p, span, div, strong, h1, h2, h3, li');
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (n.children && n.children.length > 0) continue; // solo hojas
+      if (n.closest && n.closest('button, .llf-badge')) continue;
+      const t = (n.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!t || t.length > 120) continue;
+      if (out.indexOf(t) === -1) out.push(t);
+    }
+    return out;
+  }
+
+  // ¿La línea parece ubicación/metadato en lugar de nombre de empresa?
+  function looksLikeLocation(t) {
+    if (!t) return true;
+    if (/[()]/.test(t)) return true;                       // "Rosario (Híbrido)"
+    if (/(remoto|remote|híbrido|hibrido|hybrid|presencial|on-?site)/i.test(t)) return true;
+    if (/^\d/.test(t)) return true;
+    if (/(jornada|full[- ]time|part[- ]time|contrato|pasantía|pasantia|internship)/i.test(t)) return true;
+    return false;
+  }
+
   function companyFromCard(card) {
-    const sub = card.querySelector && card.querySelector('.artdeco-entity-lockup__subtitle');
-    if (sub && sub.textContent) return sub.textContent.trim();
+    const sub = card && card.querySelector && card.querySelector('.artdeco-entity-lockup__subtitle');
+    if (sub && sub.textContent && sub.textContent.trim()) return sub.textContent.trim();
+
+    // CAPA 2026: la empresa es la línea inmediatamente posterior al título.
+    // Conservador a propósito: si la candidata parece ubicación o ruido de UI,
+    // se devuelve '' (mejor clasificar solo por título que envenenar la señal).
+    const lines = textLinesFromCard(card);
+    if (!lines.length) return '';
+    const title = (titleFromCard(card) || '').replace(/\s+/g, ' ').trim();
+    let idx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (title && (lines[i] === title || lines[i].indexOf(title) === 0)) { idx = i; break; }
+    }
+    for (let j = idx + 1; j < lines.length; j++) {
+      const t = lines[j];
+      if (title && t === title) continue;
+      if (UI_NOISE_RE.test(t)) continue;
+      if (looksLikeLocation(t)) return '';
+      return t;
+    }
     return '';
   }
 
@@ -92,6 +178,47 @@
     if (parent && parent.getAttribute && parent.getAttribute('data-job-id')) {
       return parent.getAttribute('data-job-id');
     }
+    
+    // NUEVA CAPA M3: Extracción desde URL
+    let link = null;
+    if (card.tagName && card.tagName.toLowerCase() === 'a' && card.href && (card.href.indexOf('/jobs/view/') !== -1 || card.href.indexOf('currentJobId=') !== -1)) {
+        link = card;
+    } else if (card.querySelector) {
+        link = card.querySelector('a[href*="/jobs/view/"], a[href*="currentJobId="]');
+    }
+    
+    if (link) {
+        const href = link.getAttribute('href') || link.href || '';
+        let match = href.match(/\/jobs\/view\/([0-9]+)/);
+        if (match) return match[1];
+        
+        match = href.match(/currentJobId=([0-9]+)/);
+        if (match) return match[1];
+    }
+
+    // CAPA 2026: sin <a> ni data-job-id, el id puede sobrevivir en atributos de
+    // tracking (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un
+    // contexto explícito para no capturar cualquier número de la tarjeta.
+    const holders = [card];
+    const holder = card.querySelector && card.querySelector(
+      '[data-occludable-job-id],[data-job-posting-id],[data-entity-urn],[data-tracking-urn]'
+    );
+    if (holder) holders.push(holder);
+    for (let hi = 0; hi < holders.length; hi++) {
+      const h = holders[hi];
+      if (!h || !h.getAttributeNames || !h.getAttribute) continue;
+      const names = h.getAttributeNames();
+      for (let ni = 0; ni < names.length; ni++) {
+        const name = names[ni];
+        if (name === 'class' || name === 'style' || name.indexOf('aria-') === 0) continue;
+        const val = h.getAttribute(name) || '';
+        if (!val) continue;
+        const ctx = val.match(/(?:jobPosting[:/]|jobs\/view\/|currentJobId=)(\d{5,14})/);
+        if (ctx) return ctx[1];
+        if (name.indexOf('job') !== -1 && /^\d{5,14}$/.test(val)) return val;
+      }
+    }
+
     return '';
   }
 
@@ -204,8 +331,29 @@
                  root.querySelector('.jobs-search-results-list__list-item[class*="active"]') ||
                  root.querySelector('.job-card-container[class*="active"]') ||
                  root.querySelector('.job-card-list[class*="active"]');
-    if (!active) return null;
-    return jobIdFromCard(active);
+                 
+    // NUEVA CAPA M3: Fallback para A/B testing minificado
+    if (!active) {
+        const activeLink = root.querySelector('a[href*="/jobs/view/"][aria-current="page"]') || 
+                           root.querySelector('a[href*="/jobs/view/"][aria-current="true"]');
+        if (activeLink) active = activeLink.closest('li') || activeLink.closest('div') || activeLink;
+    }
+    
+    if (active) {
+      const id = jobIdFromCard(active);
+      if (id) return id;
+    }
+
+    // CAPA 2026: la UI nueva no marca la tarjeta activa con aria-current ni con
+    // clases legibles, pero la URL SIEMPRE lleva la vacante abierta en el panel
+    // derecho: /jobs/search-results/?currentJobId=NNN
+    const href = (root.location && root.location.href) ||
+                 (root.defaultView && root.defaultView.location && root.defaultView.location.href) ||
+                 (typeof window !== 'undefined' && window.location ? window.location.href : '');
+    const m = String(href || '').match(/currentJobId=(\d+)/);
+    if (m) return m[1];
+
+    return null;
   }
 
   // Texto del panel de detalle (columna derecha) para la vacante activa.
@@ -234,9 +382,36 @@
   //    scanJobs(document, (id, card) => detailText)    -> con idioma de descripción
   function scanJobs(root, getDescription) {
     if (!root || !root.querySelectorAll) return [];
-    const cards = root.querySelectorAll('[data-job-id]');
+    
+    let list = [];
+    
+    // NUEVA CAPA M3: Usar el anclaje href para localizar las tarjetas PRIMERO
+    const links = root.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]');
+    const uniqueCards = [];
+    const linkList = (typeof links.forEach === 'function') ? links : Array.prototype.slice.call(links);
+    linkList.forEach(function(link) {
+       let li = link.closest('li');
+       if (!li) {
+          li = link.parentElement;
+          if (li && li.parentElement && li.parentElement.querySelectorAll('a[href*="currentJobId="], a[href*="/jobs/view/"]').length === 1) {
+              li = li.parentElement;
+          }
+       }
+       if (li && uniqueCards.indexOf(li) === -1) {
+         uniqueCards.push(li);
+       }
+    });
+    
+    if (uniqueCards.length > 0) {
+      list = uniqueCards;
+    } else {
+      let cards = root.querySelectorAll('[data-job-id]');
+      if (cards.length > 0) {
+        list = (typeof cards.forEach === 'function') ? cards : Array.prototype.slice.call(cards);
+      }
+    }
+    
     const out = [];
-    const list = (typeof cards.forEach === 'function') ? cards : Array.prototype.slice.call(cards);
     list.forEach(function (card) {
       const base = extractFromCard(card);
       const result = {
@@ -311,10 +486,33 @@
     let unknownCount = 0;
 
     if (root && root.querySelectorAll) {
-      const cards = root.querySelectorAll('[data-job-id]');
-      totalCards = cards.length;
-      for (let i = 0; i < cards.length; i++) {
-        const card = cards[i];
+      // CAPA 2026 (prioritaria): contar por la marca propia. Es la única que
+      // funciona en las dos UIs, porque las tarjetas nuevas no tienen
+      // data-job-id ni enlaces a la vacante.
+      let cards = root.querySelectorAll('[data-llf-lang]');
+      if (cards.length === 0) cards = root.querySelectorAll('[data-job-id]');
+      let list = [];
+      if (cards.length > 0) {
+        list = (typeof cards.forEach === 'function') ? cards : Array.prototype.slice.call(cards);
+      } else {
+        const links = root.querySelectorAll('a[href*="/jobs/view/"], a[href*="currentJobId="]');
+        const unique = [];
+        for(let i=0; i<links.length; i++) {
+          let c = links[i].closest('li');
+          if (!c) {
+            c = links[i].parentElement;
+            if (c && c.parentElement && c.parentElement.querySelectorAll('a[href*="currentJobId="]').length === 1) {
+                c = c.parentElement;
+            }
+          }
+          if (c && unique.indexOf(c) === -1) unique.push(c);
+        }
+        list = unique;
+      }
+      
+      totalCards = list.length;
+      for (let i = 0; i < list.length; i++) {
+        const card = list[i];
         const jId = jobIdFromCard(card);
         if (jId && jobIds.indexOf(jId) === -1) {
           jobIds.push(jId);

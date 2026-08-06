@@ -20,7 +20,7 @@ const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 // panel de debug (?llfdebug=1) para saber QUÉ versión corre realmente en el
 // navegador del usuario (las regresiones "fantasma" eran versiones viejas
 // cacheadas por raw.githubusercontent/Tampermonkey).
-const VERSION = '0.5.2';
+const VERSION = '0.5.4';
 
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
@@ -65,7 +65,11 @@ const FOOTER = `
       var dbg = (location.search || '').indexOf('llfdebug=1') >= 0;
       if (dbg && LangJobsApp.extract) {
         setTimeout(function () {
-          var cards = document.querySelectorAll('[data-job-id]');
+          // v0.5.4: usar el MISMO descubrimiento que el runtime (UI 2026 sin
+          // data-job-id); si no estuviera disponible, caer al selector legacy.
+          var cards = LangJobsApp.getDomCards
+            ? LangJobsApp.getDomCards(document)
+            : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
           lines.push('LangJobs DEBUG v${VERSION} — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
@@ -85,7 +89,7 @@ const FOOTER = `
             try {
               var d = LangJobsApp.extract ? LangJobsApp.extract(c) : null;
               var title = d ? (d.title || '').slice(0, 30) : '(sin extract)';
-              var jobId = c.getAttribute('data-job-id') || '(vacio)';
+              var jobId = (d && d.jobId) || c.getAttribute('data-job-id') || '(vacio)';
               var badge = c.querySelector ? (c.querySelector('.llf-badge') ? 'BADGE' : '-') : '?';
               var lang = '?';
               var src = '?';

@@ -38,6 +38,7 @@
   const CLS = {
     hidden: 'llf-hidden', // display:none (no se elimina el nodo)
     dim:    'llf-dim',    // opacidad reducida
+    host:   'llf-badge-host', // position:relative en la tarjeta (ancla del badge)
   };
   const STYLE_ID = 'llf-styles';
 
@@ -201,6 +202,129 @@
     return true;
   }
 
+  // ── Descubrimiento de tarjetas (v0.5.4: migración UI LinkedIn 2026) ────────
+  // Contexto (ver docs/linkedin_ui_2026_migration.md):
+  //   • Las tarjetas de la lista izquierda YA NO tienen <a> ni data-job-id.
+  //     Son DIVs con click handlers y clases CSS ofuscadas (_983b42c3, …).
+  //   • El único ancla estable es el botón ✕ de descartar, identificado por su
+  //     aria-label ("Descartar empleo «título»" / "Dismiss job «title»").
+  //   • Entre la tarjeta visual y el contenedor de la lista hay wrappers con
+  //     `display:contents` (0x0, SIN caja de layout). Etiquetar uno de esos
+  //     wrappers inyecta el badge en el DOM pero NO lo hace visible sobre la
+  //     tarjeta: sin caja, `position:relative` no aplica y el badge absoluto se
+  //     ancla a un ancestro lejano (o al viewport), amontonándose fuera de la
+  //     tarjeta. Ese era el bug de v0.5.3.
+  //
+  // Invariante usada para delimitar UNA tarjeta (no depende de clases CSS):
+  //   la tarjeta es el ancestro MÁS EXTERNO del botón ✕ que sigue conteniendo
+  //   UN SOLO botón ✕ y que además tiene caja de layout propia.
+  var DISMISS_SEL =
+    'button[aria-label^="Descartar empleo"], button[aria-label^="Dismiss job"], ' +
+    'button[aria-label^="Descartar el empleo"], button[aria-label^="Ocultar empleo"]';
+  var MAX_CLIMB = 25;
+
+  // ¿El elemento genera caja de layout propia? (display:contents / detached => no)
+  function hasLayoutBox(el) {
+    if (!el) return false;
+    if (typeof el.offsetWidth !== 'number' || typeof el.offsetHeight !== 'number') return false;
+    return el.offsetWidth > 0 && el.offsetHeight > 0;
+  }
+
+  // display:contents es el patrón que usa la UI 2026 para los wrappers 0x0.
+  function isDisplayContents(el) {
+    if (!el) return false;
+    try {
+      var doc = el.ownerDocument;
+      var win = doc && (doc.defaultView || doc.parentWindow);
+      if (!win || !win.getComputedStyle) return false;
+      var st = win.getComputedStyle(el);
+      return !!st && st.display === 'contents';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Cuerpo de la descripción del panel derecho: sirve de tope al subir desde el
+  // botón ✕ del panel de detalle (que tiene UN solo ✕ en todo el panel y, sin
+  // este tope, haría que la "tarjeta" fuese el panel entero).
+  var DETAIL_BODY_SEL = '#job-details, .jobs-description, .jobs-description__content, .jobs-box__html-content';
+
+  // Sube desde el ancla (botón ✕) hasta el borde de la tarjeta.
+  function cardFromAnchor(anchor, anchorSel, detailBody) {
+    if (!anchor || !anchor.parentElement) return null;
+    var el = anchor;
+    var boxed = null; // ancestro más externo CON caja de layout
+    var solid = null; // ancestro más externo que NO es display:contents (fallback)
+    for (var i = 0; i < MAX_CLIMB; i++) {
+      var parent = el.parentElement;
+      if (!parent || !parent.querySelectorAll) break;
+      // Si el padre ya agrupa varias tarjetas (o ninguna), el borde está en `el`.
+      if (parent.querySelectorAll(anchorSel).length !== 1) break;
+      // Tope del panel de detalle: no absorber el cuerpo de la descripción.
+      if (detailBody && parent.contains && parent.contains(detailBody) &&
+          !(el.contains && el.contains(detailBody))) break;
+      el = parent;
+      if (hasLayoutBox(el)) boxed = el;
+      if (!isDisplayContents(el)) solid = el;
+    }
+    // Preferencia: caja real > no-display:contents > último ancestro válido.
+    // (En jsdom/tests no hay layout: offsetWidth es siempre 0 y gana `solid`.)
+    return boxed || solid || (el !== anchor ? el : null);
+  }
+
+  // Resuelve solapamientos: si un candidato contiene a otro, se queda el más
+  // interno (evita la "mega-tarjeta" con todos los badges fusionados).
+  function dedupeCards(cands) {
+    var uniq = [];
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      if (!c || !c.tagName) continue;
+      if (uniq.indexOf(c) === -1) uniq.push(c);
+    }
+    var out = [];
+    for (var j = 0; j < uniq.length; j++) {
+      var cand = uniq[j];
+      var containsOther = false;
+      for (var k = 0; k < uniq.length; k++) {
+        if (k === j) continue;
+        if (cand.contains && cand !== uniq[k] && cand.contains(uniq[k])) { containsOther = true; break; }
+      }
+      if (!containsOther) out.push(cand);
+    }
+    return out;
+  }
+
+  // Devuelve todas las tarjetas etiquetables del root (UI 2026 + legacy).
+  // Las tres capas se UNEN (no se cortocircuitan) para no perder el panel de
+  // detalle de la derecha ni la UI legacy si LinkedIn hace A/B testing.
+  function getDomCards(root) {
+    if (!root || !root.querySelectorAll) return [];
+    var cands = [];
+
+    // ── Capa 1 (UI 2026): ancla de accesibilidad (botón ✕ de descartar) ──
+    // Se resuelve UNA vez el cuerpo de la descripción (tope del panel derecho)
+    // para no pagar un querySelector por nivel y por ancla.
+    var detailBody = root.querySelector ? root.querySelector(DETAIL_BODY_SEL) : null;
+    var anchors = root.querySelectorAll(DISMISS_SEL);
+    for (var i = 0; i < anchors.length; i++) {
+      var card = cardFromAnchor(anchors[i], DISMISS_SEL, detailBody);
+      if (card) cands.push(card);
+    }
+
+    // ── Capa 2 (legacy): data-job-id ──
+    var dataCards = root.querySelectorAll('[data-job-id]');
+    for (var j = 0; j < dataCards.length; j++) cands.push(dataCards[j]);
+
+    // ── Capa 3 (legacy): enlaces a la vacante ──
+    var links = root.querySelectorAll('a[href*="/jobs/view/"]');
+    for (var k = 0; k < links.length; k++) {
+      var c = (links[k].closest && (links[k].closest('[data-job-id]') || links[k].closest('li'))) || null;
+      if (c) cands.push(c);
+    }
+
+    return dedupeCards(cands);
+  }
+
   // ── Inyecta/actualiza los estilos de acción una sola vez ───────────────────
   function ensureStyles(doc) {
     if (!doc || !doc.createElement) return;
@@ -211,6 +335,10 @@
       '.' + CLS.hidden + '{display:none !important;height:0 !important;margin:0 !important;padding:0 !important;overflow:hidden !important;}\n' +
       '.' + CLS.dim + '{opacity:0.28 !important;filter:grayscale(70%);}\n' +
       '[data-job-id]{position:relative !important;}\n' +
+      // v0.5.4: las tarjetas de la UI 2026 NO tienen data-job-id, así que el
+      // ancla del badge se marca explícitamente con esta clase. Sin ella el
+      // badge (position:absolute) se ancla a un ancestro lejano y no se ve.
+      '.' + CLS.host + '{position:relative !important;}\n' +
       '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
       'display:inline-flex !important;align-items:center !important;gap:3px !important;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
@@ -236,6 +364,17 @@
       'background:linear-gradient(135deg, #34d399 0%, #059669 100%) !important;}\n' +
       '.llf-beta-confirm-btn:active{transform:translateY(0) scale(0.98) !important;}\n';
     (doc.head || doc.documentElement).appendChild(style);
+  }
+
+  // ── La tarjeta debe ser el bloque contenedor del badge (position:relative) ──
+  // v0.5.4: en la UI 2026 no hay data-job-id, así que la regla CSS
+  // `[data-job-id]{position:relative}` no aplica y el badge absoluto se anclaba
+  // a un ancestro lejano (invisible sobre la tarjeta). Se re-verifica en cada
+  // pase porque LinkedIn puede reescribir className al re-renderizar.
+  function ensureBadgeHost(card) {
+    if (card && card.classList && !card.classList.contains(CLS.host)) {
+      card.classList.add(CLS.host);
+    }
   }
 
   // ── Aplica la acción DOM según CONFIG (T1.8) ───────────────────────────────
@@ -292,6 +431,8 @@
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
 
     if (document && document.createElement && card.setAttribute) {
+      ensureStyles(document);
+      ensureBadgeHost(card);
       const b = BADGE[data.lang] || BADGE.unknown;
       let badge = card.querySelector && card.querySelector('.llf-badge');
       if (!badge) {
@@ -336,7 +477,7 @@
             // Captura instantánea del conteo total y por idioma en el momento exacto del clic
             let pageStats = null;
             if (document && document.querySelectorAll) {
-              const allCards = document.querySelectorAll('[data-job-id]');
+              const allCards = getDomCards(document);
               let esCount = 0, enCount = 0, unkCount = 0;
               for (let i = 0; i < allCards.length; i++) {
                 const l = allCards[i].getAttribute ? allCards[i].getAttribute('data-llf-lang') : '';
@@ -387,8 +528,15 @@
 
     _dbg('processCard', { jobId: selectors.extractFromCard(card).jobId, prevHash: (prevHash || '').slice(0, 40), hash: h.slice(0, 40), prevLang: prevLang, force: !!opts.force });
 
+    // v0.5.4: la idempotencia por hash NO alcanza. LinkedIn re-renderiza el
+    // interior de la tarjeta (React/Ember) y se lleva el badge, pero deja
+    // intactos los atributos data-llf-* del nodo: con solo mirar el hash la
+    // tarjeta quedaba "procesada" y sin badge para siempre. Si el badge no
+    // está en el DOM, hay que reponerlo.
+    const hasBadge = (card.querySelector) ? !!card.querySelector('.llf-badge') : true;
+
     let data;
-    if (!opts.force && prevHash === h && prevLang) {
+    if (!opts.force && prevHash === h && prevLang && hasBadge) {
       data = { lang: prevLang, jobId: (selectors.extractFromCard(card).jobId) };
       _dbg('  → HASH MATCH, reusing prevLang:', prevLang);
     } else {
@@ -413,6 +561,7 @@
     // SIEMPRE aplicar la acción (label/dim/hide), incluso si el hash no cambió
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     ensureStyles(document);
+    ensureBadgeHost(card); // idempotente: repone la clase si LinkedIn la borró
     applyAction(card, data, document, opts.config);
     return data;
   }
@@ -487,8 +636,7 @@
   function processAll(root, opts) {
     opts = opts || {};
     if (!root || !root.querySelectorAll) return [];
-    const cards = root.querySelectorAll('[data-job-id]');
-    const list = Array.prototype.slice.call(cards).filter(isJobCardContainer);
+    const list = getDomCards(root).filter(isJobCardContainer);
     LAST_ERRORS.length = 0;
     const res = list.map(function (card, i) {
       // BLINDAJE (v0.3.0): una tarjeta con forma inesperada (LinkedIn redeploy)
@@ -551,14 +699,18 @@
       else if (b.parentNode && b.parentNode.removeChild) b.parentNode.removeChild(b);
     });
 
-    const cards = document.querySelectorAll('[data-job-id]');
+    // v0.5.4: en la UI 2026 las tarjetas no tienen data-job-id; se limpian por
+    // las marcas propias (data-llf-*) y por la clase host del badge.
+    const cards = document.querySelectorAll(
+      '[data-llf-lang],[data-llf-hash],.' + CLS.host + ',[data-job-id]'
+    );
     Array.prototype.slice.call(cards).forEach(function (card) {
       if (!isJobCardContainer(card)) return;
       if (card.removeAttribute) {
         card.removeAttribute('data-llf-lang');
         card.removeAttribute('data-llf-hash');
       }
-      if (card.classList) card.classList.remove(CLS.hidden, CLS.dim);
+      if (card.classList) card.classList.remove(CLS.hidden, CLS.dim, CLS.host);
       if (card.style && card.style.removeProperty) card.style.removeProperty('display');
     });
     return list.length;
@@ -685,6 +837,7 @@
     setConfig: setConfig,
     clearAll: clearAll,
     classify: classify,
+    getDomCards: getDomCards,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,

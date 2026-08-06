@@ -24,7 +24,7 @@ const OUT = path.join(ROOT, 'extension', 'content.js');
 const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 
 // Versión compartida con el userscript (trazabilidad).
-const VERSION = '0.5.2';
+const VERSION = '0.5.4';
 
 const HEADER = `/* LangJobs — content script (build autogenerado por tools/build_extension.js).
  * Fuente unica: src/ (mismos modulos UMD que el userscript, sin divergencia).
@@ -126,7 +126,9 @@ const FOOTER = `
         if (!msg || msg.type !== 'LJF_COUNT') return;
         var counts = { es: 0, en: 0, unknown: 0 };
         if (state.enabled && typeof document !== 'undefined' && document.querySelectorAll) {
-          var nodes = document.querySelectorAll('[data-job-id]');
+          // v0.5.4: la UI 2026 de LinkedIn no tiene data-job-id en las tarjetas.
+          // Se cuenta por la marca propia data-llf-lang (válida en ambas UIs).
+          var nodes = document.querySelectorAll('[data-llf-lang]');
           for (var i = 0; i < nodes.length; i++) {
             var lang = nodes[i].getAttribute && nodes[i].getAttribute('data-llf-lang');
             if (lang === 'es') counts.es++;
