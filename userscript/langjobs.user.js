@@ -1119,7 +1119,8 @@
   }
 
   // ── Descubrimiento de tarjetas (v0.5.4: migración UI LinkedIn 2026) ────────
-  // Contexto (ver docs/linkedin_ui_2026_migration.md):
+  // Contexto (investigación forense completa en la nota interna
+  // "linkedin_ui_2026_migration"; el resumen operativo está acá abajo):
   //   • Las tarjetas de la lista izquierda YA NO tienen <a> ni data-job-id.
   //     Son DIVs con click handlers y clases CSS ofuscadas (_983b42c3, …).
   //   • El único ancla estable es el botón ✕ de descartar, identificado por su

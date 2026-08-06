@@ -2,7 +2,8 @@
  * LangJobs — Harness de regresión del DOM de LinkedIn 2026 (hotfix v0.5.4)
  * ---------------------------------------------------------------------------
  * Reproduce con jsdom la estructura REAL de una tarjeta de la lista izquierda
- * tras el rediseño de LinkedIn de agosto 2026 (ver docs/linkedin_ui_2026_migration.md):
+ * tras el rediseño de LinkedIn de agosto 2026 (mapa L0→L16 en la nota interna
+ * "linkedin_ui_2026_migration"):
  *
  *   - Las tarjetas NO tienen <a>, NO tienen data-job-id.
  *   - El único ancla estable es el botón ✕ (aria-label="Descartar empleo «…»").
