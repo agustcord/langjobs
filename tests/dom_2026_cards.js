@@ -1093,11 +1093,12 @@ console.log('\n═══ Conteo de la página y gancho onPass ═══');
   check('tras clearAll el conteo queda en cero', cero.total === 0, JSON.stringify(cero));
 })();
 
-// ── Escenario 17: traducción del conteo al badge del icono (v0.6.0) ────────
-// Regla que se está fijando: el texto del icono es la cantidad de EN, y si
-// quedan dudosas se muestra «EN·??». El color distingue "conteo cerrado" de
-// "todavía resolviendo". El badge del icono solo muestra ~4 caracteres, así que
-// cuando «EN·??» no entra se cae a mostrar solo EN, y el ámbar sigue avisando.
+// ── Escenario 17: traducción del conteo al badge del icono (v0.6.1) ────────
+// Regla que se está fijando: el icono muestra UN SOLO número, el del IDIOMA DE
+// PREFERENCIA del usuario (targetLang) — con targetLang='es', cuántas vacantes
+// en español hay en la página. El color es el del idioma contado cuando el
+// conteo está cerrado, y ámbar mientras queden «??», porque en ese caso el
+// número todavía puede subir.
 console.log('\n═══ Badge del icono de la barra ═══');
 (function escenario17() {
   // background.js es un service worker: no exporta con module.exports, publica
@@ -1117,42 +1118,60 @@ console.log('\n═══ Badge del icono de la barra ═══');
   const ICON = globalThis.LangJobsIconBadge;
   check('background.js expone su lógica para poder testearla', !!ICON);
 
-  const b = function (es, en, unk) {
-    return ICON.badgeFromCounts({ es: es, en: en, unknown: unk, total: es + en + unk });
+  const b = function (es, en, unk, lang) {
+    return ICON.badgeFromCounts({ es: es, en: en, unknown: unk, total: es + en + unk }, lang);
   };
 
   check('página sin etiquetar → icono sin número',
-    b(0, 0, 0).text === '', JSON.stringify(b(0, 0, 0).text));
-  check('todo resuelto y sin inglés → "0" en verde',
-    b(25, 0, 0).text === '0' && b(25, 0, 0).color === ICON.COLOR_DONE,
-    JSON.stringify(b(25, 0, 0)));
-  check('con inglés y nada pendiente → solo el número de EN, en verde',
-    b(20, 5, 0).text === '5' && b(20, 5, 0).color === ICON.COLOR_DONE,
-    JSON.stringify(b(20, 5, 0)));
-  check('con dudosas → «EN·??» en ámbar (el caso de la captura: 20/2/3)',
-    b(20, 2, 3).text === '2·3' && b(20, 2, 3).color === ICON.COLOR_PENDING,
-    JSON.stringify(b(20, 2, 3)));
-  check('si «EN·??» no entra en 4 caracteres, se muestra EN y el ámbar avisa',
-    b(5, 12, 10).text === '12' && b(5, 12, 10).color === ICON.COLOR_PENDING,
-    JSON.stringify(b(5, 12, 10)));
+    b(0, 0, 0, 'es').text === '', JSON.stringify(b(0, 0, 0, 'es').text));
+
+  // El caso de la captura de campo: 20 ES / 2 EN / 3 ?? con preferencia ES.
+  check('con preferencia ES el número son las vacantes en ESPAÑOL',
+    b(20, 2, 3, 'es').text === '20', JSON.stringify(b(20, 2, 3, 'es')));
+  check('el mismo conteo con preferencia EN muestra las vacantes en INGLÉS',
+    b(20, 2, 3, 'en').text === '2', JSON.stringify(b(20, 2, 3, 'en')));
+  check('nunca se muestran dos números: es un solo contador',
+    b(20, 2, 3, 'es').text.indexOf('·') === -1 && b(5, 12, 10, 'en').text.indexOf('·') === -1,
+    JSON.stringify(b(20, 2, 3, 'es').text) + ' / ' + JSON.stringify(b(5, 12, 10, 'en').text));
+
+  check('conteo cerrado con preferencia ES → azul de LinkedIn',
+    b(20, 5, 0, 'es').color === ICON.COLOR_BY_LANG.es, JSON.stringify(b(20, 5, 0, 'es')));
+  check('conteo cerrado con preferencia EN → verde',
+    b(20, 5, 0, 'en').color === ICON.COLOR_BY_LANG.en, JSON.stringify(b(20, 5, 0, 'en')));
+  check('mientras queden «??» el color es ámbar (el número puede subir)',
+    b(20, 2, 3, 'es').color === ICON.COLOR_PENDING, JSON.stringify(b(20, 2, 3, 'es')));
+  check('ninguna vacante en el idioma buscado → "0", no vacío',
+    b(0, 25, 0, 'es').text === '0', JSON.stringify(b(0, 25, 0, 'es')));
   check('números de 3 cifras se recortan a 99+',
-    b(0, 120, 0).text === '99+', JSON.stringify(b(0, 120, 0).text));
-  check('el tooltip trae el desglose completo sin necesidad de clic',
-    b(20, 2, 3).title.indexOf('20 en español') !== -1 &&
-    b(20, 2, 3).title.indexOf('2 en inglés') !== -1 &&
-    b(20, 2, 3).title.indexOf('3 ambiguas') !== -1,
-    JSON.stringify(b(20, 2, 3).title));
+    b(120, 0, 0, 'es').text === '99+', JSON.stringify(b(120, 0, 0, 'es').text));
+
+  check('el tooltip dice cuántas de cuántas y en qué idioma',
+    b(20, 2, 3, 'es').title.indexOf('20 de 25 vacantes en español') !== -1,
+    JSON.stringify(b(20, 2, 3, 'es').title));
+  check('el tooltip mantiene el desglose completo sin necesidad de clic',
+    b(20, 2, 3, 'es').title.indexOf('20 en español') !== -1 &&
+    b(20, 2, 3, 'es').title.indexOf('2 en inglés') !== -1 &&
+    b(20, 2, 3, 'es').title.indexOf('3 ambiguas') !== -1,
+    JSON.stringify(b(20, 2, 3, 'es').title));
   check('el tooltip avisa que las dudosas se están resolviendo',
-    b(20, 2, 3).title.indexOf('segundo plano') !== -1);
+    b(20, 2, 3, 'es').title.indexOf('segundo plano') !== -1);
   check('sin dudosas el tooltip no habla de resolución pendiente',
-    b(20, 5, 0).title.indexOf('segundo plano') === -1);
-  // Entrada corrupta: se degrada a 0 en vez de escribir "NaN" o "undefined"
-  // sobre el icono (los valores no numéricos no cuentan como pendientes).
+    b(20, 5, 0, 'es').title.indexOf('segundo plano') === -1);
+
+  // Sin targetLang (mensaje viejo o config incompleta) se asume el default del
+  // producto, 'es': el icono nunca debe quedar en blanco por eso.
+  check('sin targetLang se usa el default del producto (es)',
+    ICON.badgeFromCounts({ es: 7, en: 1, unknown: 0, total: 8 }).text === '7',
+    JSON.stringify(ICON.badgeFromCounts({ es: 7, en: 1, unknown: 0, total: 8 })));
+  check('un targetLang desconocido no rompe el icono',
+    b(7, 1, 0, 'pt').text === '7', JSON.stringify(b(7, 1, 0, 'pt')));
+
+  // Entrada corrupta: se degrada a 0 en vez de escribir "NaN" o "undefined".
   check('un conteo corrupto no rompe el icono',
     ICON.badgeFromCounts(null).text === '' &&
-    ICON.badgeFromCounts({ en: 'x', unknown: null, total: 3 }).text === '0' &&
-    ICON.badgeFromCounts({ en: NaN, unknown: 2, total: 2 }).text === '0·2',
-    JSON.stringify(ICON.badgeFromCounts({ en: NaN, unknown: 2, total: 2 })));
+    ICON.badgeFromCounts({ es: 'x', unknown: null, total: 3 }, 'es').text === '0' &&
+    ICON.badgeFromCounts({ es: NaN, en: 2, unknown: 1, total: 3 }, 'es').text === '0',
+    JSON.stringify(ICON.badgeFromCounts({ es: NaN, en: 2, unknown: 1, total: 3 }, 'es')));
 })();
 
 // ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────

@@ -24,7 +24,7 @@ const OUT = path.join(ROOT, 'extension', 'content.js');
 const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 
 // Versión compartida con el userscript (trazabilidad).
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 
 const HEADER = `/* LangJobs — content script (build autogenerado por tools/build_extension.js).
  * Fuente unica: src/ (mismos modulos UMD que el userscript, sin divergencia).
@@ -76,11 +76,19 @@ const FOOTER = `
       var c = counts || { es: 0, en: 0, unknown: 0, total: 0 };
       // Anti-spam: el observer dispara un pase por lote de mutaciones (scroll
       // infinito). Si el conteo no cambió, no se manda nada.
-      var key = state.enabled + '|' + c.es + '|' + c.en + '|' + c.unknown;
+      // targetLang entra en la clave: el número del icono ES el conteo del
+      // idioma de preferencia, así que si cambia hay que repintar aunque los
+      // conteos sean los mismos.
+      var key = state.enabled + '|' + state.targetLang + '|' + c.es + '|' + c.en + '|' + c.unknown;
       if (key === lastBadgeKey) return;
       lastBadgeKey = key;
       try {
-        chrome.runtime.sendMessage({ type: 'LJF_BADGE', enabled: state.enabled, counts: c }, function () {
+        chrome.runtime.sendMessage({
+          type: 'LJF_BADGE',
+          enabled: state.enabled,
+          targetLang: state.targetLang,
+          counts: c,
+        }, function () {
           // Leer lastError evita el warning "Unchecked runtime.lastError" cuando
           // el service worker está dormido o el contexto fue invalidado.
           if (chrome.runtime.lastError) { lastBadgeKey = null; }
@@ -135,6 +143,12 @@ const FOOTER = `
         root.LangJobsApp.setConfig({ targetLang: state.targetLang, mode: state.mode });
       }
       if (state.enabled) startObserving(); else stopObserving();
+      // Repintar el icono YA: setConfig reprocesa por su cuenta y no pasa por
+      // opts.onPass, así que sin esto un cambio de idioma de preferencia no se
+      // vería en el icono hasta la próxima mutación del DOM.
+      if (state.enabled && root.LangJobsApp && root.LangJobsApp.countLangs && typeof document !== 'undefined') {
+        try { pushBadge(root.LangJobsApp.countLangs(document)); } catch (e) {}
+      }
     }
 
     // Leer config de storage (async). Sin chrome.storage, usar defaults.

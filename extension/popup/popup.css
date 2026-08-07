@@ -85,7 +85,7 @@ main { padding: 16px; }
   border-radius: 50%;
   vertical-align: middle;
 }
-.dot-done { background: #057642; }
+.dot-target { background: #0a66c2; }
 .dot-pending { background: #b45309; }
 
 .glossary {

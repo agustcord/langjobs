@@ -20,22 +20,29 @@
  * escribe dos strings en el icono.
  *
  * ── Cómo se lee el icono ───────────────────────────────────────────────────
- *   texto  = cantidad de vacantes en INGLÉS. Si además quedan dudosas, se
- *            muestra «EN·??» (p. ej. "2·3").
- *   color  = VERDE  → no queda ninguna dudosa: el conteo está cerrado.
- *            ÁMBAR  → todavía hay «??» resolviéndose en segundo plano, así que
- *                     el número de EN puede subir.
+ *   texto  = cuántas vacantes de la página están en EL IDIOMA DE PREFERENCIA
+ *            del usuario (`targetLang`, el que se mantiene visible). Con
+ *            targetLang='es' el número son las vacantes en español.
+ *   color  = el del idioma contado (azul ES / verde EN) cuando el conteo está
+ *            cerrado, y ÁMBAR mientras queden «??» resolviéndose en segundo
+ *            plano, porque en ese caso el número todavía puede subir.
  *   tooltip = el desglose completo (ES / EN / ?? y total). Aparece con solo
  *            pasar el mouse, sin clic.
  *
- * El texto del badge del icono admite ~4 caracteres legibles. Cuando «EN·??» no
- * entra (dos números de 2 cifras) se muestra solo EN y el color ámbar sigue
- * avisando que hay dudosas: el detalle exacto está en el tooltip y en el popup.
+ * UN SOLO NÚMERO a propósito: el badge del icono admite ~4 caracteres legibles,
+ * así que los tres conteos no caben. Se eligió el del idioma de preferencia
+ * porque es el que responde "¿cuánto de esta página me sirve?". El desglose fino
+ * vive en el tooltip y en el popup.
  */
 'use strict';
 
-var COLOR_DONE = '#057642';    // verde: nada pendiente
-var COLOR_PENDING = '#b45309'; // ámbar: quedan «??» en resolución
+// Color por idioma contado. El ES es el azul de LinkedIn (mismo que el badge de
+// la tarjeta). El EN del badge en página es #57a37e, pero sobre el icono se usa
+// un verde más oscuro porque #57a37e con texto blanco encima queda ilegible.
+var COLOR_BY_LANG = { es: '#0a66c2', en: '#057642' };
+var COLOR_PENDING = '#b45309'; // ámbar: quedan «??», el número puede subir
+var COLOR_NEUTRAL = '#57606a';
+var LANG_NAME = { es: 'español', en: 'inglés' };
 var TITLE_BASE = 'LangJobs — Filtro de vacantes por idioma';
 
 function fmt(n) {
@@ -43,37 +50,40 @@ function fmt(n) {
   return n > 99 ? '99+' : String(n);
 }
 
+function num(v) {
+  return (typeof v === 'number' && isFinite(v) && v > 0) ? Math.floor(v) : 0;
+}
+
 // Traduce el conteo a { text, color, title } del icono.
-// Exportada en globalThis para poder probarla sin navegador.
-function badgeFromCounts(counts) {
+// `targetLang` es el idioma de preferencia del usuario: es EL número que se
+// muestra. Exportada en globalThis para poder probarla sin navegador.
+function badgeFromCounts(counts, targetLang) {
   var c = counts || {};
-  var es = (typeof c.es === 'number') ? c.es : 0;
-  var en = (typeof c.en === 'number') ? c.en : 0;
-  var unk = (typeof c.unknown === 'number') ? c.unknown : 0;
-  var total = (typeof c.total === 'number') ? c.total : (es + en + unk);
+  var lang = (targetLang === 'en') ? 'en' : 'es'; // default del producto: es
+  var es = num(c.es);
+  var en = num(c.en);
+  var unk = num(c.unknown);
+  var total = (typeof c.total === 'number' && isFinite(c.total)) ? num(c.total) : (es + en + unk);
 
   if (total <= 0) {
-    return { text: '', color: COLOR_DONE, title: TITLE_BASE };
+    return { text: '', color: COLOR_NEUTRAL, title: TITLE_BASE };
   }
 
-  var text;
-  var color;
-  if (unk > 0) {
-    var combo = fmt(en) + '·' + fmt(unk);
-    // El badge del icono solo muestra ~4 caracteres legibles.
-    text = (combo.length <= 4) ? combo : fmt(en);
-    color = COLOR_PENDING;
-  } else {
-    text = fmt(en);
-    color = COLOR_DONE;
-  }
+  // UN número: las vacantes en el idioma que el usuario quiere ver.
+  var wanted = (lang === 'en') ? en : es;
+  var text = fmt(wanted);
+  // Ámbar mientras haya dudosas: algunas pueden terminar siendo del idioma
+  // buscado, así que el número todavía no es definitivo.
+  var color = (unk > 0) ? COLOR_PENDING : (COLOR_BY_LANG[lang] || COLOR_NEUTRAL);
 
   var title = TITLE_BASE + '\n' +
-    total + ' vacantes etiquetadas en esta página\n' +
+    wanted + ' de ' + total + ' vacantes en ' + LANG_NAME[lang] +
+    ' (' + lang.toUpperCase() + ', tu idioma de preferencia)\n' +
+    '───────────\n' +
     es + ' en español (ES)\n' +
     en + ' en inglés (EN)\n' +
     unk + ' ambiguas (??)' +
-    (unk > 0 ? ' — resolviéndose en segundo plano' : '');
+    (unk > 0 ? ' — resolviéndose en segundo plano, el número puede subir' : '');
 
   return { text: text, color: color, title: title };
 }
@@ -92,7 +102,7 @@ function paint(tabId, badge) {
 }
 
 function clear(tabId) {
-  paint(tabId, { text: '', color: COLOR_DONE, title: TITLE_BASE });
+  paint(tabId, { text: '', color: COLOR_NEUTRAL, title: TITLE_BASE });
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
@@ -103,7 +113,7 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
     // Etiquetado apagado desde el popup: el icono no debe seguir mostrando el
     // último conteo, o parecería que la extensión sigue trabajando.
     if (msg.enabled === false) { clear(tabId); return; }
-    paint(tabId, badgeFromCounts(msg.counts));
+    paint(tabId, badgeFromCounts(msg.counts, msg.targetLang));
   });
 }
 
@@ -121,8 +131,9 @@ if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
 if (typeof globalThis !== 'undefined') {
   globalThis.LangJobsIconBadge = {
     badgeFromCounts: badgeFromCounts,
-    COLOR_DONE: COLOR_DONE,
+    COLOR_BY_LANG: COLOR_BY_LANG,
     COLOR_PENDING: COLOR_PENDING,
+    COLOR_NEUTRAL: COLOR_NEUTRAL,
     TITLE_BASE: TITLE_BASE,
   };
 }
