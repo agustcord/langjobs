@@ -270,9 +270,9 @@
     return out;
   }
 
-  function lines(limit) {
+  function lines(limit, quiet) {
     var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
-    if (!cards.length) { console.warn('sin tarjetas'); return []; }
+    if (!cards.length) { if (!quiet) console.warn('sin tarjetas'); return { cardsWithExtra: 0, extras: [] }; }
     var rows = [];
     var extras = [];
     var cardsWithExtra = 0;
@@ -296,11 +296,13 @@
       if (extraEnEstaTarjeta > 0) cardsWithExtra++;
     });
 
+    var totalChars = extras.reduce(function (a, t) { return a + t.length; }, 0);
+    if (quiet) return { cardsWithExtra: cardsWithExtra, extras: extras, totalChars: totalChars };
+
     console.log('%c Texto por tarjeta (★ EXTRA = señal potencialmente aprovechable) ',
       'background:#0a66c2;color:#fff;font-weight:700');
     console.table(rows);
 
-    var totalChars = extras.reduce(function (a, t) { return a + t.length; }, 0);
     console.log('%c RESULTADO DE LA MEDICIÓN ', 'background:#111;color:#fff;font-weight:700');
     console.log('Tarjetas analizadas:        ', Math.min(cards.length, limit || cards.length));
     console.log('Tarjetas con línea ★ EXTRA: ', cardsWithExtra);
@@ -316,7 +318,7 @@
       console.log('   Conclusión: el idioma de las «??» solo se resuelve con la descripción');
       console.log('   (abrir la vacante, o recuperar el jobId → __LJF_DIAG.internals()).');
     }
-    return { cardsWithExtra: cardsWithExtra, extras: extras };
+    return { cardsWithExtra: cardsWithExtra, extras: extras, totalChars: totalChars };
   }
 
   // ── Probe: ¿el jobId vive en los internals del framework? ─────────────────
@@ -324,9 +326,9 @@
   // TODAS las tarjetas. Ojo: en la extensión esto exige un script en
   // world:"MAIN" (el world aislado no ve los expandos de la página); en el
   // userscript de Tampermonkey ya corre en el world correcto.
-  function internals(maxCards) {
+  function internals(maxCards, quiet) {
     var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
-    if (!cards.length) { console.warn('sin tarjetas'); return []; }
+    if (!cards.length) { if (!quiet) console.warn('sin tarjetas'); return []; }
 
     // Acepta urn:li:jobPosting:, urn:li:fs_jobPosting:, urn:li:fsd_jobPosting:
     // y variantes (LinkedIn cambió el prefijo entre versiones de Voyager).
@@ -387,6 +389,19 @@
       });
     });
 
+    var uniqQ = [];
+    findings.forEach(function (f) {
+      if (!uniqQ.some(function (u) { return u.tarjeta === f.tarjeta && u.jobId === f.jobId; })) uniqQ.push(f);
+    });
+    if (quiet) {
+      api._lastInternals = {
+        expandos: expandoReport.length,
+        expandoKeys: expandoReport.slice(0, 6).map(function (e) { return e.expando; }),
+        hallazgos: uniqQ.slice(0, 6),
+      };
+      return uniqQ;
+    }
+
     console.log('%c Internals del framework en las tarjetas ', 'background:#0a66c2;color:#fff;font-weight:700');
     if (!expandoReport.length) {
       console.log('%c FALLA %c No se encontró NINGÚN expando (__reactProps$, __ember, …).',
@@ -432,12 +447,97 @@
     return cards.length;
   }
 
+  // ── UN comando que junta todo y lo deja en el portapapeles ────────────────
+  // Pensado para no tener que ir comando por comando ni mandar capturas: corre
+  // los tres diagnósticos, arma un JSON compacto y lo copia (console.copy).
+  function report() {
+    var cards = getDomCards(document);
+    api.cards = cards;
+
+    var langs = { es: 0, en: 0, unknown: 0, sin_marca: 0 };
+    var sinBadge = 0;
+    var fueraDeTarjeta = 0;
+    var izquierda = 0;
+    var unknownTitles = [];
+
+    cards.forEach(function (card) {
+      var l = card.getAttribute('data-llf-lang');
+      if (l === 'es') langs.es++;
+      else if (l === 'en') langs.en++;
+      else if (l === 'unknown') { langs.unknown++; unknownTitles.push(titleOf(card).slice(0, 50)); }
+      else langs.sin_marca++;
+
+      var b = box(card);
+      if (b.x < LEFT_LIST_MAX_X) izquierda++;
+      var badge = card.querySelector('.llf-badge');
+      if (!badge) sinBadge++;
+      else {
+        var bb = box(badge);
+        if (!(bb.x >= b.x - 4 && bb.x <= b.x + b.w + 4 && bb.y >= b.y - 4 && bb.y <= b.y + b.h + 4)) fueraDeTarjeta++;
+      }
+    });
+
+    var med = lines(null, true);
+    internals(3, true);
+    var int = api._lastInternals || { expandos: 0, expandoKeys: [], hallazgos: [] };
+
+    var out = {
+      version_diag: '2026-08-06',
+      url: location.href.slice(0, 160),
+      idioma_ui: document.documentElement.getAttribute('lang') || '?',
+      conteos: {
+        botones_dismiss: document.querySelectorAll(DISMISS_SEL).length,
+        data_job_id: document.querySelectorAll('[data-job-id]').length,
+        links_jobs_view: document.querySelectorAll('a[href*="/jobs/view/"]').length,
+        tarjetas: cards.length,
+        badges: document.querySelectorAll('.llf-badge').length,
+        en_lista_izquierda: izquierda,
+        sin_badge: sinBadge,
+        badges_fuera_de_su_tarjeta: fueraDeTarjeta,
+      },
+      idiomas: langs,
+      pct_unknown: cards.length ? Math.round((langs.unknown / cards.length) * 100) + '%' : 'n/a',
+      titulos_unknown: unknownTitles.slice(0, 10),
+      medicion_texto_extra: {
+        tarjetas_con_texto_extra: med.cardsWithExtra,
+        lineas_extra: med.extras.length,
+        chars_extra: med.totalChars || 0,
+        muestras: med.extras.slice(0, 8).map(function (t) { return t.slice(0, 110); }),
+      },
+      internals_framework: {
+        expandos_encontrados: int.expandos,
+        claves: int.expandoKeys,
+        jobid_recuperable: int.hallazgos.length > 0,
+        hallazgos: int.hallazgos.map(function (h) { return { jobId: h.jobId, via: h.vía, path: String(h.path).slice(0, 90) }; }),
+      },
+    };
+
+    var json = JSON.stringify(out, null, 2);
+    console.log('%c INFORME COMPLETO ', 'background:#0a66c2;color:#fff;font-weight:700');
+    console.log(json);
+    try {
+      if (typeof copy === 'function') {
+        copy(json);
+        console.log('%c 📋 Copiado al portapapeles — pegalo tal cual en el chat ',
+          'background:#16a34a;color:#fff;font-weight:700');
+      } else {
+        console.log('(no hay copy() disponible: seleccioná el JSON de arriba y copialo a mano)');
+      }
+    } catch (e) {
+      console.log('(no se pudo copiar automáticamente; copiá el JSON de arriba)');
+    }
+    return out;
+  }
+
   var api = {
+    report: report,
     run: run, trace: trace, ids: ids, ariaLabels: ariaLabels, mark: mark,
     lines: lines, internals: internals,
     getDomCards: getDomCards, cards: [],
   };
   window.__LJF_DIAG = api;
   run();
-  console.log('Comandos: __LJF_DIAG.run() | .lines() | .internals() | .trace("texto del título") | .ids() | .ariaLabels() | .mark()');
+  console.log('%c → Para el informe completo (y copiado al portapapeles):  __LJF_DIAG.report()',
+    'background:#111;color:#0f0;font-weight:700');
+  console.log('Otros: .lines() | .internals() | .trace("texto del título") | .ids() | .ariaLabels() | .mark()');
 })();
