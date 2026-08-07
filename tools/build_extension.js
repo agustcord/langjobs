@@ -24,7 +24,7 @@ const OUT = path.join(ROOT, 'extension', 'content.js');
 const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 
 // Versión compartida con el userscript (trazabilidad).
-const VERSION = '0.5.5';
+const VERSION = '0.5.6';
 
 const HEADER = `/* LangJobs — content script (build autogenerado por tools/build_extension.js).
  * Fuente unica: src/ (mismos modulos UMD que el userscript, sin divergencia).

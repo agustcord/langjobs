@@ -390,6 +390,60 @@ check('la clave de caché incluye la empresa (no colisiona por título suelto)',
 // chrome de interfaz. Está en el idioma de la INTERFAZ, así que si se cuela al
 // detector sesga todo hacia ES (el error que oculta vacantes válidas en modo
 // hide). Estas son las cadenas exactas observadas.
+// ── Escenario 6: jobId desde componentkey (medido en campo 2026-08-06) ─────
+// __LJF_DIAG.hunt() encontró el id en un atributo plano de un div interno:
+//     componentkey="job-card-component-ref-4376922531"
+// Con eso vuelve a haber jobId en la lista → revive la Capa 4 (fetch de la
+// descripción) y las claves de caché/hash dejan de depender del título.
+console.log('\n═══ jobId recuperado del atributo componentkey ═══');
+const s6 = buildDom2026();
+global.window = s6.dom.window;
+global.document = s6.dom.window.document;
+
+const CK_IDS = ['4376922531', '4442412166', '4439204501'];
+Array.prototype.forEach.call(s6.list.querySelectorAll('[data-test-level="L9"]'), function (l9, i) {
+  if (CK_IDS[i]) l9.setAttribute('componentkey', 'job-card-component-ref-' + CK_IDS[i]);
+});
+
+const cards6 = APP.getDomCards(s6.doc);
+const ids6 = cards6.map(function (c) { return SEL.extractFromCard(c).jobId; });
+console.log('  jobIds extraídos: ' + JSON.stringify(ids6));
+check('extrae el jobId de componentkey en todas las tarjetas',
+  ids6.length === CK_IDS.length && ids6.every(function (id, i) { return id === CK_IDS[i]; }),
+  JSON.stringify(ids6));
+check('el hash de idempotencia ahora usa el jobId real',
+  APP.hashOf(cards6[0], s6.doc).indexOf(CK_IDS[0]) === 0,
+  APP.hashOf(cards6[0], s6.doc).slice(0, 40));
+
+// Variantes de forma del atributo que conviene tolerar.
+(function variantes() {
+  const doc = s6.doc;
+  const casos = [
+    ['componentkey', 'job-card-component-ref-4111111111', '4111111111'],
+    ['componentkey', 'jobCardRef:4222222222', '4222222222'],
+    ['data-component-key', 'job-card-component-ref-4333333333', '4333333333'],
+    ['componentkey', 'search-filter-component-ref-99', ''],   // no es una vacante
+    ['componentkey', 'job-card-footer', ''],                   // sin dígitos
+  ];
+  let okAll = true;
+  const got = [];
+  casos.forEach(function (c) {
+    const w = doc.createElement('div');
+    const card = doc.createElement('div');
+    const inner = doc.createElement('div');
+    inner.setAttribute(c[0], c[1]);
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «X»');
+    inner.appendChild(b);
+    card.appendChild(inner);
+    w.appendChild(card);
+    const res = SEL.extractFromCard(card).jobId;
+    got.push(c[1] + ' → ' + JSON.stringify(res));
+    if (res !== c[2]) okAll = false;
+  });
+  check('tolera variantes del atributo y rechaza los que no son vacantes', okAll, got.join(' | '));
+})();
+
 console.log('\n═══ Ruido de UI real: no debe contaminar título ni empresa ═══');
 const NOISE_LINES = ['·', 'Publicado hace 5 meses', 'Evaluando solicitudes de forma activa', 'Solicitados'];
 const s5 = buildDom2026();
@@ -436,7 +490,65 @@ check('un título que EMPIEZA con "es" no se filtra como ruido',
 check('una empresa que EMPIEZA con "en" no se filtra como ruido',
   esData.company === 'Encargados SA', JSON.stringify(esData.company));
 
-console.log('\n────────────────────────────────────────');
-console.log('  ' + pass + ' ok, ' + fail + ' fallo(s)');
-console.log('────────────────────────────────────────\n');
-process.exit(fail === 0 ? 0 : 1);
+// ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
+// Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
+// endpoint público está caído o tira 429, cada pase del MutationObserver
+// pediría otra vez la misma vacante. Este test fija el tope.
+(async function escenario7() {
+  console.log('\n═══ Tope de reintentos del fetch de descripción ═══');
+  const s7 = buildDom2026();
+  global.window = s7.dom.window;
+  global.document = s7.dom.window.document;
+
+  const JOB_ID = '4499990000';
+  (function addAmbiguousWithId() {
+    const doc = s7.doc;
+    const w = doc.createElement('div');
+    const card = doc.createElement('div');
+    const inner = doc.createElement('div');
+    inner.setAttribute('componentkey', 'job-card-component-ref-' + JOB_ID);
+    const pT = doc.createElement('p'); pT.textContent = 'Tech Lead'; inner.appendChild(pT);
+    const pC = doc.createElement('p'); pC.textContent = 'Kunan'; inner.appendChild(pC);
+    const pM = doc.createElement('p'); pM.textContent = 'Rosario (Híbrido)'; inner.appendChild(pM);
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «Tech Lead»');
+    inner.appendChild(b);
+    card.appendChild(inner);
+    w.appendChild(card);
+    s7.list.appendChild(w);
+  })();
+
+  // Stub del fetch: cuenta llamadas y siempre falla (endpoint caído / 429).
+  const realFetch = global.fetch;
+  let calls = 0;
+  const urls = [];
+  global.fetch = function (url) {
+    calls++;
+    urls.push(String(url));
+    return Promise.reject(new Error('429 simulado'));
+  };
+
+  try {
+    for (let pass = 0; pass < 6; pass++) {
+      APP.processAll(s7.doc, { getDescription: APP.makeGetDescription(s7.doc) });
+      await new Promise(function (r) { setTimeout(r, 5); });
+    }
+    check('la tarjeta ambigua CON jobId dispara el fetch de la descripción', calls >= 1,
+      'llamadas=' + calls);
+    check('la URL pedida es el endpoint público de la vacante',
+      urls.length > 0 && urls[0].indexOf('/jobs-guest/jobs/api/jobPosting/' + JOB_ID) !== -1,
+      urls[0] || '(ninguna)');
+    check('6 pases con el endpoint caído NO generan más de 2 peticiones', calls <= 2,
+      'llamadas=' + calls + ' (tope MAX_TRIES=2)');
+    check('el contador de intentos queda registrado por jobId',
+      APP.FETCH_TRIED && APP.FETCH_TRIED[JOB_ID] <= 2,
+      JSON.stringify(APP.FETCH_TRIED));
+  } finally {
+    global.fetch = realFetch;
+  }
+
+  console.log('\n────────────────────────────────────────');
+  console.log('  ' + pass + ' ok, ' + fail + ' fallo(s)');
+  console.log('────────────────────────────────────────\n');
+  process.exit(fail === 0 ? 0 : 1);
+})();

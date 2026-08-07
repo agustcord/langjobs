@@ -87,6 +87,34 @@
     });
   }
 
+  // Réplica de la capa principal de src/selectors.js → jobIdFromCard (2026):
+  // componentkey="job-card-component-ref-NNN". Mantener sincronizadas.
+  function jobIdOf(card) {
+    if (!card) return '';
+    if (card.getAttribute && card.getAttribute('data-job-id')) return card.getAttribute('data-job-id');
+    var sel = '[componentkey],[componentKey],[data-component-key],[data-componentkey]';
+    var nodes = [];
+    if (card.matches && card.matches(sel)) nodes.push(card);
+    if (card.querySelectorAll) {
+      var f = card.querySelectorAll(sel);
+      for (var i = 0; i < f.length; i++) nodes.push(f[i]);
+    }
+    for (var j = 0; j < nodes.length; j++) {
+      var raw = nodes[j].getAttribute('componentkey') || nodes[j].getAttribute('componentKey') ||
+                nodes[j].getAttribute('data-component-key') || nodes[j].getAttribute('data-componentkey') || '';
+      var m = raw.match(/^job-card-component-ref-(\d{5,14})$/i) ||
+              raw.match(/job[a-z-]*(?:ref|id)[-_:](\d{5,14})/i) ||
+              raw.match(/^job[a-z-]*?(\d{5,14})$/i);
+      if (m) return m[1];
+    }
+    var link = card.querySelector && card.querySelector('a[href*="/jobs/view/"]');
+    if (link) {
+      var mm = (link.getAttribute('href') || '').match(/\/jobs\/view\/(\d+)/);
+      if (mm) return mm[1];
+    }
+    return '';
+  }
+
   function titleOf(card) {
     var btn = card.querySelector(DISMISS_SEL);
     if (btn) {
@@ -659,6 +687,14 @@
         sin_badge: sinBadge,
         badges_fuera_de_su_tarjeta: fueraDeTarjeta,
       },
+      jobids: (function () {
+        var ok = 0, muestra = [];
+        cards.forEach(function (c) {
+          var id = jobIdOf(c);
+          if (id) { ok++; if (muestra.length < 3) muestra.push(id); }
+        });
+        return { recuperados: ok, total: cards.length, muestra: muestra };
+      })(),
       idiomas: langs,
       pct_unknown: cards.length ? Math.round((langs.unknown / cards.length) * 100) + '%' : 'n/a',
       titulos_unknown: unknownTitles.slice(0, 10),

@@ -551,9 +551,36 @@
         if (match) return match[1];
     }
 
-    // CAPA 2026: sin <a> ni data-job-id, el id puede sobrevivir en atributos de
-    // tracking (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un
-    // contexto explícito para no capturar cualquier número de la tarjeta.
+    // ── CAPA 2026 PRINCIPAL (medida en campo el 2026-08-06) ──────────────────
+    // El id SÍ sobrevive en la UI nueva, en un atributo plano de un div interno
+    // de la tarjeta (nivel L9 del mapa del DOM):
+    //     componentkey="job-card-component-ref-4376922531"
+    // Es un atributo, no una propiedad de React: se lee desde un content script
+    // en world AISLADO, sin tocar el manifest ni interceptar tráfico. Con esto
+    // vuelve a funcionar la Capa 4 (fetch de la descripción) en la lista.
+    const CK_ATTRS = '[componentkey],[componentKey],[data-component-key],[data-componentkey]';
+    const ckNodes = [];
+    if (card.matches && card.matches(CK_ATTRS)) ckNodes.push(card);
+    if (card.querySelectorAll) {
+      const found = card.querySelectorAll(CK_ATTRS);
+      for (let ci = 0; ci < found.length; ci++) ckNodes.push(found[ci]);
+    }
+    for (let ci = 0; ci < ckNodes.length; ci++) {
+      const n = ckNodes[ci];
+      const raw = (n.getAttribute('componentkey') || n.getAttribute('componentKey') ||
+                   n.getAttribute('data-component-key') || n.getAttribute('data-componentkey') || '');
+      if (!raw) continue;
+      // Forma exacta observada primero; después variantes ref/id; nunca un
+      // número suelto sin la palabra "job" delante (evita capturar tracking ids).
+      let m = raw.match(/^job-card-component-ref-(\d{5,14})$/i) ||
+              raw.match(/job[a-z-]*(?:ref|id)[-_:](\d{5,14})/i) ||
+              raw.match(/^job[a-z-]*?(\d{5,14})$/i);
+      if (m) return m[1];
+    }
+
+    // CAPA 2026 (respaldo): el id puede aparecer en atributos de tracking
+    // (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un contexto
+    // explícito para no capturar cualquier número de la tarjeta.
     const holders = [card];
     const holder = card.querySelector && card.querySelector(
       '[data-occludable-job-id],[data-job-posting-id],[data-entity-urn],[data-tracking-urn]'
@@ -1120,16 +1147,25 @@
   // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
   // ── Opción B (v0.4.0): Caché en memoria + Fetcher Asíncrono Silencioso ─────
-  const FETCH_CACHE = {}; // jobId -> lang
+  const FETCH_CACHE = {}; // clave -> lang
   const FETCH_PENDING = {};
+  const FETCH_TRIED = {}; // jobId -> intentos (tope duro, ver abajo)
   let activeFetches = 0;
   const MAX_CONCURRENT = 3;
+  // v0.5.6: tope de intentos por vacante. Sin esto, si el endpoint público está
+  // caído o devuelve 429, cada pase del MutationObserver (uno por lote de
+  // scroll) volvía a pedir la misma vacante: una tormenta de peticiones desde
+  // la cuenta del usuario. Con el jobId de vuelta en la UI 2026 este camino se
+  // ejecuta de verdad, así que el tope deja de ser teórico.
+  const MAX_TRIES = 2;
 
   function fetchJobDetail(jobId, card, doc) {
     if (!jobId || FETCH_CACHE[jobId] || FETCH_PENDING[jobId]) return;
+    if ((FETCH_TRIED[jobId] || 0) >= MAX_TRIES) return;
     if (activeFetches >= MAX_CONCURRENT) return;
 
     FETCH_PENDING[jobId] = true;
+    FETCH_TRIED[jobId] = (FETCH_TRIED[jobId] || 0) + 1;
     activeFetches++;
 
     const url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + jobId;
@@ -1868,6 +1904,8 @@
   return {
     run: run,
     observe: observe,
+    FETCH_TRIED: FETCH_TRIED,
+    FETCH_CACHE: FETCH_CACHE,
     processAll: processAll,
     processCard: processCard,
     tagCard: tagCard,
@@ -1921,7 +1959,7 @@
       if (typeof document === 'undefined') return;
       handle = root.LangJobsApp.observe(document, { debounceMs: 150 });
       if (typeof console !== 'undefined' && console.log) {
-        console.log('[LangJobs] observer activo (build v0.5.5).');
+        console.log('[LangJobs] observer activo (build v0.5.6).');
       }
     }
     function stopObserving() {

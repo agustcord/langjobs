@@ -136,16 +136,25 @@
   // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
   // ── Opción B (v0.4.0): Caché en memoria + Fetcher Asíncrono Silencioso ─────
-  const FETCH_CACHE = {}; // jobId -> lang
+  const FETCH_CACHE = {}; // clave -> lang
   const FETCH_PENDING = {};
+  const FETCH_TRIED = {}; // jobId -> intentos (tope duro, ver abajo)
   let activeFetches = 0;
   const MAX_CONCURRENT = 3;
+  // v0.5.6: tope de intentos por vacante. Sin esto, si el endpoint público está
+  // caído o devuelve 429, cada pase del MutationObserver (uno por lote de
+  // scroll) volvía a pedir la misma vacante: una tormenta de peticiones desde
+  // la cuenta del usuario. Con el jobId de vuelta en la UI 2026 este camino se
+  // ejecuta de verdad, así que el tope deja de ser teórico.
+  const MAX_TRIES = 2;
 
   function fetchJobDetail(jobId, card, doc) {
     if (!jobId || FETCH_CACHE[jobId] || FETCH_PENDING[jobId]) return;
+    if ((FETCH_TRIED[jobId] || 0) >= MAX_TRIES) return;
     if (activeFetches >= MAX_CONCURRENT) return;
 
     FETCH_PENDING[jobId] = true;
+    FETCH_TRIED[jobId] = (FETCH_TRIED[jobId] || 0) + 1;
     activeFetches++;
 
     const url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + jobId;
@@ -884,6 +893,8 @@
   return {
     run: run,
     observe: observe,
+    FETCH_TRIED: FETCH_TRIED,
+    FETCH_CACHE: FETCH_CACHE,
     processAll: processAll,
     processCard: processCard,
     tagCard: tagCard,
