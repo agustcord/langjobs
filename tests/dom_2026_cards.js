@@ -1043,6 +1043,118 @@ console.log('\n═══ Formularios modales: el badge no puede taparlos ══�
     !s15.doc.documentElement.getAttribute('data-llf-modal'));
 })();
 
+// ── Escenario 16: conteo de la página y gancho de fin de pase (v0.6.0) ─────
+// Sostiene el contador del icono de la barra: el content script no puede llamar
+// a chrome.action, así que cuenta con countLangs() y empuja el resultado al
+// service worker en cada pase (opts.onPass). El popup y el icono leen la MISMA
+// función, así que no pueden discrepar.
+console.log('\n═══ Conteo de la página y gancho onPass ═══');
+(function escenario16() {
+  const s16 = buildDom2026();
+  global.window = s16.dom.window;
+  global.document = s16.dom.window.document;
+
+  const pases = [];
+  APP.processAll(s16.doc, {
+    getDescription: APP.makeGetDescription(s16.doc),
+    health: false,
+    onPass: function (counts) { pases.push(counts); },
+  });
+
+  const c = APP.countLangs(s16.doc);
+  check('countLangs cuenta una entrada por tarjeta etiquetada',
+    c.total === JOBS.length, JSON.stringify(c));
+  check('el total es la suma de es + en + ??',
+    c.total === c.es + c.en + c.unknown, JSON.stringify(c));
+  check('onPass se llama una vez por pase', pases.length === 1, 'pases=' + pases.length);
+  check('onPass recibe el mismo conteo que countLangs',
+    JSON.stringify(pases[0]) === JSON.stringify(c),
+    JSON.stringify(pases[0]) + ' vs ' + JSON.stringify(c));
+
+  // Un consumidor que lanza NO puede romper el etiquetado (el badge del icono
+  // es un adorno; el etiquetado es el producto).
+  const antes = s16.doc.querySelectorAll('.llf-badge').length;
+  let huboError = false;
+  try {
+    APP.processAll(s16.doc, {
+      getDescription: APP.makeGetDescription(s16.doc),
+      health: false,
+      onPass: function () { throw new Error('service worker caído'); },
+    });
+  } catch (e) { huboError = true; }
+  check('un onPass que lanza no propaga la excepción', !huboError);
+  check('y el etiquetado sigue intacto',
+    s16.doc.querySelectorAll('.llf-badge').length === antes,
+    'badges=' + s16.doc.querySelectorAll('.llf-badge').length);
+
+  // Con el etiquetado limpiado, el conteo vuelve a cero (el icono se apaga).
+  APP.clearAll(s16.doc);
+  const cero = APP.countLangs(s16.doc);
+  check('tras clearAll el conteo queda en cero', cero.total === 0, JSON.stringify(cero));
+})();
+
+// ── Escenario 17: traducción del conteo al badge del icono (v0.6.0) ────────
+// Regla que se está fijando: el texto del icono es la cantidad de EN, y si
+// quedan dudosas se muestra «EN·??». El color distingue "conteo cerrado" de
+// "todavía resolviendo". El badge del icono solo muestra ~4 caracteres, así que
+// cuando «EN·??» no entra se cae a mostrar solo EN, y el ámbar sigue avisando.
+console.log('\n═══ Badge del icono de la barra ═══');
+(function escenario17() {
+  // background.js es un service worker: no exporta con module.exports, publica
+  // en globalThis. Se evalúa el archivo sin `chrome` definido (los listeners
+  // quedan sin registrar) para poder probar la lógica pura.
+  const fs = require('fs');
+  const swPath = path.join(__dirname, '..', 'extension', 'background.js');
+  const code = fs.readFileSync(swPath, 'utf8');
+  const prevChrome = global.chrome;
+  global.chrome = undefined;
+  try {
+    // eslint-disable-next-line no-new-func
+    (new Function(code))();
+  } finally {
+    global.chrome = prevChrome;
+  }
+  const ICON = globalThis.LangJobsIconBadge;
+  check('background.js expone su lógica para poder testearla', !!ICON);
+
+  const b = function (es, en, unk) {
+    return ICON.badgeFromCounts({ es: es, en: en, unknown: unk, total: es + en + unk });
+  };
+
+  check('página sin etiquetar → icono sin número',
+    b(0, 0, 0).text === '', JSON.stringify(b(0, 0, 0).text));
+  check('todo resuelto y sin inglés → "0" en verde',
+    b(25, 0, 0).text === '0' && b(25, 0, 0).color === ICON.COLOR_DONE,
+    JSON.stringify(b(25, 0, 0)));
+  check('con inglés y nada pendiente → solo el número de EN, en verde',
+    b(20, 5, 0).text === '5' && b(20, 5, 0).color === ICON.COLOR_DONE,
+    JSON.stringify(b(20, 5, 0)));
+  check('con dudosas → «EN·??» en ámbar (el caso de la captura: 20/2/3)',
+    b(20, 2, 3).text === '2·3' && b(20, 2, 3).color === ICON.COLOR_PENDING,
+    JSON.stringify(b(20, 2, 3)));
+  check('si «EN·??» no entra en 4 caracteres, se muestra EN y el ámbar avisa',
+    b(5, 12, 10).text === '12' && b(5, 12, 10).color === ICON.COLOR_PENDING,
+    JSON.stringify(b(5, 12, 10)));
+  check('números de 3 cifras se recortan a 99+',
+    b(0, 120, 0).text === '99+', JSON.stringify(b(0, 120, 0).text));
+  check('el tooltip trae el desglose completo sin necesidad de clic',
+    b(20, 2, 3).title.indexOf('20 en español') !== -1 &&
+    b(20, 2, 3).title.indexOf('2 en inglés') !== -1 &&
+    b(20, 2, 3).title.indexOf('3 ambiguas') !== -1,
+    JSON.stringify(b(20, 2, 3).title));
+  check('el tooltip avisa que las dudosas se están resolviendo',
+    b(20, 2, 3).title.indexOf('segundo plano') !== -1);
+  check('sin dudosas el tooltip no habla de resolución pendiente',
+    b(20, 5, 0).title.indexOf('segundo plano') === -1);
+  // Entrada corrupta: se degrada a 0 en vez de escribir "NaN" o "undefined"
+  // sobre el icono (los valores no numéricos no cuentan como pendientes).
+  check('un conteo corrupto no rompe el icono',
+    ICON.badgeFromCounts(null).text === '' &&
+    ICON.badgeFromCounts({ en: 'x', unknown: null, total: 3 }).text === '0' &&
+    ICON.badgeFromCounts({ en: NaN, unknown: 2, total: 2 }).text === '0·2',
+    JSON.stringify(ICON.badgeFromCounts({ en: NaN, unknown: 2, total: 2 })));
+})();
+
 // ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
 // Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
 // endpoint público está caído o tira 429, cada pase del MutationObserver

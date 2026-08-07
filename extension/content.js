@@ -2047,6 +2047,26 @@
     if (unkNode) unkNode.textContent = stats.unknownCount;
   }
 
+  // ── Conteo de etiquetas de la página (fuente única, v0.6.0) ────────────────
+  // Se cuenta por la marca propia `data-llf-lang`, que es válida en las dos UIs
+  // (la de 2026 no tiene data-job-id). Antes esta cuenta estaba duplicada en el
+  // bootstrap de la extensión y en el banner de beta; ahora los dos y el
+  // contador del icono de la barra leen de acá, así que no pueden discrepar.
+  function countLangs(root) {
+    const out = { es: 0, en: 0, unknown: 0, total: 0 };
+    const doc = root || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !doc.querySelectorAll) return out;
+    const nodes = doc.querySelectorAll('[data-llf-lang]');
+    for (let i = 0; i < nodes.length; i++) {
+      const lang = nodes[i].getAttribute && nodes[i].getAttribute('data-llf-lang');
+      if (lang === 'es') out.es++;
+      else if (lang === 'en') out.en++;
+      else if (lang === 'unknown') out.unknown++;
+    }
+    out.total = out.es + out.en + out.unknown;
+    return out;
+  }
+
   // ── Canario de salud (v0.5.6) ──────────────────────────────────────────────
   // Motivación empírica: en un mismo día hubo DOS fallas silenciosas seguidas.
   //   1. v0.5.3 dejó de etiquetar la lista (badges anclados en un wrapper 0x0).
@@ -2168,6 +2188,13 @@
     if (!FIRST_RUN_AT) FIRST_RUN_AT = Date.now();
     if (opts.health !== false) {
       try { health(root); } catch (e) { /* el canario nunca debe romper el etiquetado */ }
+    }
+    // v0.6.0: gancho de fin de pase. Lo usa el bootstrap de la extensión para
+    // empujar el conteo al service worker y pintarlo sobre el icono de la barra
+    // (el content script no puede llamar a chrome.action). Va al final y
+    // blindado: un consumidor que lance no puede romper el etiquetado.
+    if (typeof opts.onPass === 'function') {
+      try { opts.onPass(countLangs(root), res); } catch (e) {}
     }
     return res;
   }
@@ -2372,6 +2399,7 @@
     positionBadge: positionBadge,
     isModalOpen: isModalOpen,
     syncModalState: syncModalState,
+    countLangs: countLangs,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
@@ -2414,22 +2442,45 @@
     };
     var handle = null;
 
+    // ── Contador sobre el icono de la barra (v0.6.0) ───────────────────────
+    // El content script no puede llamar a chrome.action, así que empuja el
+    // conteo al service worker (extension/background.js), que lo pinta como
+    // badge + tooltip del icono. Objetivo: ver cuántas EN y cuántas «??» hay
+    // sin tener que abrir el popup.
+    var lastBadgeKey = null;
+    function pushBadge(counts) {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) return;
+      var c = counts || { es: 0, en: 0, unknown: 0, total: 0 };
+      // Anti-spam: el observer dispara un pase por lote de mutaciones (scroll
+      // infinito). Si el conteo no cambió, no se manda nada.
+      var key = state.enabled + '|' + c.es + '|' + c.en + '|' + c.unknown;
+      if (key === lastBadgeKey) return;
+      lastBadgeKey = key;
+      try {
+        chrome.runtime.sendMessage({ type: 'LJF_BADGE', enabled: state.enabled, counts: c }, function () {
+          // Leer lastError evita el warning "Unchecked runtime.lastError" cuando
+          // el service worker está dormido o el contexto fue invalidado.
+          if (chrome.runtime.lastError) { lastBadgeKey = null; }
+        });
+      } catch (e) { lastBadgeKey = null; }
+    }
+
     function startObserving() {
       if (!root.LangJobsApp || !root.LangJobsApp.observe) return;
       if (handle && handle.disconnect) handle.disconnect();
       if (typeof document === 'undefined') return;
-      handle = root.LangJobsApp.observe(document, { debounceMs: 150 });
+      handle = root.LangJobsApp.observe(document, { debounceMs: 150, onPass: pushBadge });
       // Sella la versión en el DOM. El proyecto ya tuvo "regresiones fantasma"
       // que en realidad eran builds viejos cacheados; con esto el diagnóstico
       // (y el propio usuario) puede confirmar QUÉ versión está corriendo sin
       // depender de la consola ni de la pantalla de extensiones.
       try {
         if (document.documentElement) {
-          document.documentElement.setAttribute('data-llf-version', '0.5.11');
+          document.documentElement.setAttribute('data-llf-version', '0.6.0');
         }
       } catch (e) {}
       if (typeof console !== 'undefined' && console.log) {
-        console.log('[LangJobs] observer activo (build v0.5.11).');
+        console.log('[LangJobs] observer activo (build v0.6.0).');
       }
     }
     function stopObserving() {
@@ -2441,6 +2492,10 @@
       if (root.LangJobsApp && root.LangJobsApp.clearAll && typeof document !== 'undefined') {
         try { root.LangJobsApp.clearAll(document); } catch (e) {}
       }
+      // El icono no puede quedar con el último conteo: parecería que la
+      // extensión sigue trabajando con el etiquetado apagado.
+      lastBadgeKey = null;
+      pushBadge({ es: 0, en: 0, unknown: 0, total: 0 });
       if (typeof console !== 'undefined' && console.log) {
         console.log('[LangJobs] observer detenido y badges limpiados (deshabilitado).');
       }
@@ -2491,17 +2546,12 @@
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
       chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         if (!msg || msg.type !== 'LJF_COUNT') return;
-        var counts = { es: 0, en: 0, unknown: 0 };
-        if (state.enabled && typeof document !== 'undefined' && document.querySelectorAll) {
-          // v0.5.4: la UI 2026 de LinkedIn no tiene data-job-id en las tarjetas.
-          // Se cuenta por la marca propia data-llf-lang (válida en ambas UIs).
-          var nodes = document.querySelectorAll('[data-llf-lang]');
-          for (var i = 0; i < nodes.length; i++) {
-            var lang = nodes[i].getAttribute && nodes[i].getAttribute('data-llf-lang');
-            if (lang === 'es') counts.es++;
-            else if (lang === 'en') counts.en++;
-            else if (lang === 'unknown') counts.unknown++;
-          }
+        var counts = { es: 0, en: 0, unknown: 0, total: 0 };
+        // v0.6.0: se cuenta con LangJobsApp.countLangs (fuente única). Antes esta
+        // cuenta estaba duplicada acá y podía discrepar del popup o del icono.
+        if (state.enabled && typeof document !== 'undefined' &&
+            root.LangJobsApp && root.LangJobsApp.countLangs) {
+          counts = root.LangJobsApp.countLangs(document);
         }
         sendResponse(counts);
       });

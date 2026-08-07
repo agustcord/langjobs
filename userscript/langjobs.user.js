@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.5.11
+// @version      0.6.0
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -2058,6 +2058,26 @@
     if (unkNode) unkNode.textContent = stats.unknownCount;
   }
 
+  // ── Conteo de etiquetas de la página (fuente única, v0.6.0) ────────────────
+  // Se cuenta por la marca propia `data-llf-lang`, que es válida en las dos UIs
+  // (la de 2026 no tiene data-job-id). Antes esta cuenta estaba duplicada en el
+  // bootstrap de la extensión y en el banner de beta; ahora los dos y el
+  // contador del icono de la barra leen de acá, así que no pueden discrepar.
+  function countLangs(root) {
+    const out = { es: 0, en: 0, unknown: 0, total: 0 };
+    const doc = root || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !doc.querySelectorAll) return out;
+    const nodes = doc.querySelectorAll('[data-llf-lang]');
+    for (let i = 0; i < nodes.length; i++) {
+      const lang = nodes[i].getAttribute && nodes[i].getAttribute('data-llf-lang');
+      if (lang === 'es') out.es++;
+      else if (lang === 'en') out.en++;
+      else if (lang === 'unknown') out.unknown++;
+    }
+    out.total = out.es + out.en + out.unknown;
+    return out;
+  }
+
   // ── Canario de salud (v0.5.6) ──────────────────────────────────────────────
   // Motivación empírica: en un mismo día hubo DOS fallas silenciosas seguidas.
   //   1. v0.5.3 dejó de etiquetar la lista (badges anclados en un wrapper 0x0).
@@ -2179,6 +2199,13 @@
     if (!FIRST_RUN_AT) FIRST_RUN_AT = Date.now();
     if (opts.health !== false) {
       try { health(root); } catch (e) { /* el canario nunca debe romper el etiquetado */ }
+    }
+    // v0.6.0: gancho de fin de pase. Lo usa el bootstrap de la extensión para
+    // empujar el conteo al service worker y pintarlo sobre el icono de la barra
+    // (el content script no puede llamar a chrome.action). Va al final y
+    // blindado: un consumidor que lance no puede romper el etiquetado.
+    if (typeof opts.onPass === 'function') {
+      try { opts.onPass(countLangs(root), res); } catch (e) {}
     }
     return res;
   }
@@ -2383,6 +2410,7 @@
     positionBadge: positionBadge,
     isModalOpen: isModalOpen,
     syncModalState: syncModalState,
+    countLangs: countLangs,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
@@ -2409,7 +2437,7 @@
     // Sella la versión en el DOM (ver la nota del bundler de la extensión).
     try {
       if (document.documentElement) {
-        document.documentElement.setAttribute('data-llf-version', '0.5.11');
+        document.documentElement.setAttribute('data-llf-version', '0.6.0');
       }
     } catch (e) {}
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
@@ -2430,7 +2458,7 @@
             ? LangJobsApp.getDomCards(document)
             : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
-          lines.push('LangJobs DEBUG v0.5.11 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.6.0 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
