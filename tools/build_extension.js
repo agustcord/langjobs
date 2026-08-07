@@ -24,7 +24,7 @@ const OUT = path.join(ROOT, 'extension', 'content.js');
 const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 
 // Versión compartida con el userscript (trazabilidad).
-const VERSION = '0.5.5';
+const VERSION = '0.5.8';
 
 const HEADER = `/* LangJobs — content script (build autogenerado por tools/build_extension.js).
  * Fuente unica: src/ (mismos modulos UMD que el userscript, sin divergencia).
@@ -66,6 +66,15 @@ const FOOTER = `
       if (handle && handle.disconnect) handle.disconnect();
       if (typeof document === 'undefined') return;
       handle = root.LangJobsApp.observe(document, { debounceMs: 150 });
+      // Sella la versión en el DOM. El proyecto ya tuvo "regresiones fantasma"
+      // que en realidad eran builds viejos cacheados; con esto el diagnóstico
+      // (y el propio usuario) puede confirmar QUÉ versión está corriendo sin
+      // depender de la consola ni de la pantalla de extensiones.
+      try {
+        if (document.documentElement) {
+          document.documentElement.setAttribute('data-llf-version', '${VERSION}');
+        }
+      } catch (e) {}
       if (typeof console !== 'undefined' && console.log) {
         console.log('[LangJobs] observer activo (build v${VERSION}).');
       }

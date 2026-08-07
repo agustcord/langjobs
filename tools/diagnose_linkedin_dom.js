@@ -87,6 +87,34 @@
     });
   }
 
+  // Réplica de la capa principal de src/selectors.js → jobIdFromCard (2026):
+  // componentkey="job-card-component-ref-NNN". Mantener sincronizadas.
+  function jobIdOf(card) {
+    if (!card) return '';
+    if (card.getAttribute && card.getAttribute('data-job-id')) return card.getAttribute('data-job-id');
+    var sel = '[componentkey],[componentKey],[data-component-key],[data-componentkey]';
+    var nodes = [];
+    if (card.matches && card.matches(sel)) nodes.push(card);
+    if (card.querySelectorAll) {
+      var f = card.querySelectorAll(sel);
+      for (var i = 0; i < f.length; i++) nodes.push(f[i]);
+    }
+    for (var j = 0; j < nodes.length; j++) {
+      var raw = nodes[j].getAttribute('componentkey') || nodes[j].getAttribute('componentKey') ||
+                nodes[j].getAttribute('data-component-key') || nodes[j].getAttribute('data-componentkey') || '';
+      var m = raw.match(/^job-card-component-ref-(\d{5,14})$/i) ||
+              raw.match(/job[a-z-]*(?:ref|id)[-_:](\d{5,14})/i) ||
+              raw.match(/^job[a-z-]*?(\d{5,14})$/i);
+      if (m) return m[1];
+    }
+    var link = card.querySelector && card.querySelector('a[href*="/jobs/view/"]');
+    if (link) {
+      var mm = (link.getAttribute('href') || '').match(/\/jobs\/view\/(\d+)/);
+      if (mm) return mm[1];
+    }
+    return '';
+  }
+
   function titleOf(card) {
     var btn = card.querySelector(DISMISS_SEL);
     if (btn) {
@@ -596,6 +624,98 @@
     return out;
   }
 
+  // ── Ver EL TEXTO que la extensión usa para decidir el idioma ──────────────
+  // Tres rondas de errores de clasificación se diagnosticaron a ciegas porque
+  // nunca vimos el texto. Estos dos comandos lo muestran.
+
+  // Réplica de src/selectors.js → extractDescriptionFromHTML (mantener a la par).
+  function extraerDeHTML(html) {
+    var patrones = [
+      ['show-more-less-html__markup', /<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i],
+      ['section.description', /<section[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/section>/i],
+      ['jobs-description-content__text', /<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i],
+      ['jobs-box__html-content', /<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i],
+      ['#job-details', /<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i],
+    ];
+    for (var i = 0; i < patrones.length; i++) {
+      var m = html.match(patrones[i][1]);
+      if (m) {
+        return {
+          patron: patrones[i][0],
+          texto: m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+        };
+      }
+    }
+    return { patron: '(ninguno)', texto: '' };
+  }
+
+  // Hace la MISMA petición que hace la extensión y muestra qué texto obtiene.
+  // Sin jobId usa el de la URL. Devuelve una promesa: en la consola se ve solo.
+  function fetchTest(jobId) {
+    var id = String(jobId || (location.search.match(/currentJobId=(\d+)/) || [])[1] || '');
+    if (!id) { console.warn('Abrí una vacante primero, o pasá el id: __LJF_DIAG.fetchTest("4440882690")'); return null; }
+    var url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + id;
+    console.log('%c Pidiendo ' + url + ' ', 'background:#0a66c2;color:#fff;font-weight:700');
+    return fetch(url).then(function (r) {
+      console.log('HTTP', r.status, r.ok ? '(OK)' : '(FALLA)');
+      return r.text();
+    }).then(function (html) {
+      var res = extraerDeHTML(html);
+      var out = {
+        jobId: id,
+        html_chars: html.length,
+        patron_que_matcheo: res.patron,
+        texto_chars: res.texto.length,
+        texto_palabras: res.texto ? res.texto.split(/\s+/).length : 0,
+        primeros_300: res.texto.slice(0, 300),
+        ultimos_150: res.texto.slice(-150),
+      };
+      console.log('%c TEXTO QUE LEE LA EXTENSIÓN ', 'background:#111;color:#0f0;font-weight:700');
+      console.log(JSON.stringify(out, null, 2));
+      if (!res.texto) {
+        console.warn('No se extrajo nada → la vacante queda en «??» (fail-open). Puede ser correcto.');
+      } else if (out.texto_palabras < 30) {
+        console.warn('MUY CORTO (' + out.texto_palabras + ' palabras): probablemente NO es el cuerpo del ' +
+                     'aviso sino un bloque de metadatos. v0.5.7 lo descarta a propósito.');
+      }
+      try { if (typeof copy === 'function') { copy(JSON.stringify(out, null, 2)); console.log('%c 📋 Copiado ', 'background:#16a34a;color:#fff'); } } catch (e) {}
+      return out;
+    }).catch(function (e) {
+      console.warn('La petición falló:', e && e.message);
+      return { error: String(e && e.message) };
+    });
+  }
+
+  // Qué texto se puede sacar del PANEL de detalle abierto.
+  function panelText() {
+    var explicito = document.querySelector('#job-details, .jobs-description__content, .jobs-description, .jobs-box__html-content');
+    var pane = null;
+    var link = document.querySelector('a[href*="/jobs/view/"]');
+    if (link) {
+      var el = link;
+      for (var i = 0; i < 12; i++) {
+        var p = el.parentElement;
+        if (!p || !p.querySelectorAll) break;
+        if (p.querySelectorAll(DISMISS_SEL).length > 0) break; // ya toca la lista
+        el = p;
+        if ((el.textContent || '').length > 200) pane = el;
+      }
+    }
+    var txt = function (n) { return n ? (n.textContent || '').replace(/\s+/g, ' ').trim() : ''; };
+    var out = {
+      contenedor_explicito: explicito ? desc(explicito) : null,
+      chars_explicito: txt(explicito).length,
+      panel_acotado: pane ? desc(pane) : null,
+      chars_panel: txt(pane).length,
+      primeros_300: (txt(explicito) || txt(pane)).slice(0, 300),
+    };
+    console.log('%c TEXTO DEL PANEL DE DETALLE ', 'background:#111;color:#0f0;font-weight:700');
+    console.log(JSON.stringify(out, null, 2));
+    if (!explicito && !pane) console.warn('No se pudo delimitar el panel: la extensión no va a poder leer el aviso.');
+    try { if (typeof copy === 'function') { copy(JSON.stringify(out, null, 2)); console.log('%c 📋 Copiado ', 'background:#16a34a;color:#fff'); } } catch (e) {}
+    return out;
+  }
+
   function mark() {
     var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
     cards.forEach(function (c, i) {
@@ -645,8 +765,12 @@
     internals(3, true);
     var int = api._lastInternals || { expandos: 0, expandoKeys: [], hallazgos: [] };
 
+    var vExt = document.documentElement.getAttribute('data-llf-version');
     var out = {
       version_diag: '2026-08-06',
+      // Si esto dice "(sin sello)" con una extensión activa, está corriendo un
+      // build anterior a v0.5.8: hay que recargar en brave://extensions.
+      version_extension: vExt || '(sin sello — build viejo o extensión inactiva)',
       url: location.href.slice(0, 160),
       idioma_ui: document.documentElement.getAttribute('lang') || '?',
       conteos: {
@@ -659,6 +783,59 @@
         sin_badge: sinBadge,
         badges_fuera_de_su_tarjeta: fueraDeTarjeta,
       },
+      // De dónde salió el idioma de cada tarjeta. Es LA validación de la
+      // Capa 4: 'title' = adivinado por el título (señal débil), 'async-fetch'
+      // / 'description' = leído del cuerpo real del aviso (señal fuerte).
+      fuentes: (function () {
+        var f = {};
+        var porFetch = [];
+        cards.forEach(function (c) {
+          var s = c.getAttribute('data-llf-src') || '(sin marca)';
+          f[s] = (f[s] || 0) + 1;
+          if (s === 'async-fetch' || s === 'description' || s === 'panel-cache') {
+            if (porFetch.length < 8) {
+              porFetch.push({
+                titulo: titleOf(c).slice(0, 45),
+                lang: c.getAttribute('data-llf-lang'),
+                via: s,
+              });
+            }
+          }
+        });
+        return { conteo: f, resueltas_por_descripcion: porFetch };
+      })(),
+      // Listado completo para auditar a ojo: título + idioma + fuente. Es lo
+      // que permite detectar un badge mal puesto sin abrir las 25 vacantes.
+      tarjetas: cards.map(function (c) {
+        return {
+          t: titleOf(c).slice(0, 46),
+          lang: c.getAttribute('data-llf-lang') || '?',
+          src: (c.getAttribute('data-llf-src') || '?').replace('async-fetch', 'fetch'),
+        };
+      }),
+      // Qué ofrece el panel de detalle. Importa porque si no hay contenedor
+      // explícito, la descripción hay que acotarla al panel a mano; si se
+      // adivina sobre el documento, se termina leyendo la lista (todo en ES).
+      panel: (function () {
+        var jd = document.querySelector('#job-details');
+        var jdesc = document.querySelector('.jobs-description, .jobs-description__content, .jobs-box__html-content');
+        var cont = jd || jdesc;
+        return {
+          tiene_job_details: !!jd,
+          tiene_jobs_description: !!jdesc,
+          links_jobs_view: document.querySelectorAll('a[href*="/jobs/view/"]').length,
+          chars_contenedor: cont ? (cont.textContent || '').replace(/\s+/g, ' ').trim().length : 0,
+          primeros_chars: cont ? (cont.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) : '',
+        };
+      })(),
+      jobids: (function () {
+        var ok = 0, muestra = [];
+        cards.forEach(function (c) {
+          var id = jobIdOf(c);
+          if (id) { ok++; if (muestra.length < 3) muestra.push(id); }
+        });
+        return { recuperados: ok, total: cards.length, muestra: muestra };
+      })(),
       idiomas: langs,
       pct_unknown: cards.length ? Math.round((langs.unknown / cards.length) * 100) + '%' : 'n/a',
       titulos_unknown: unknownTitles.slice(0, 10),
@@ -694,7 +871,7 @@
   }
 
   var api = {
-    report: report, hunt: hunt,
+    report: report, hunt: hunt, fetchTest: fetchTest, panelText: panelText,
     run: run, trace: trace, ids: ids, ariaLabels: ariaLabels, mark: mark,
     lines: lines, internals: internals,
     getDomCards: getDomCards, cards: [],

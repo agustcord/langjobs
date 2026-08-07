@@ -390,6 +390,60 @@ check('la clave de caché incluye la empresa (no colisiona por título suelto)',
 // chrome de interfaz. Está en el idioma de la INTERFAZ, así que si se cuela al
 // detector sesga todo hacia ES (el error que oculta vacantes válidas en modo
 // hide). Estas son las cadenas exactas observadas.
+// ── Escenario 6: jobId desde componentkey (medido en campo 2026-08-06) ─────
+// __LJF_DIAG.hunt() encontró el id en un atributo plano de un div interno:
+//     componentkey="job-card-component-ref-4376922531"
+// Con eso vuelve a haber jobId en la lista → revive la Capa 4 (fetch de la
+// descripción) y las claves de caché/hash dejan de depender del título.
+console.log('\n═══ jobId recuperado del atributo componentkey ═══');
+const s6 = buildDom2026();
+global.window = s6.dom.window;
+global.document = s6.dom.window.document;
+
+const CK_IDS = ['4376922531', '4442412166', '4439204501'];
+Array.prototype.forEach.call(s6.list.querySelectorAll('[data-test-level="L9"]'), function (l9, i) {
+  if (CK_IDS[i]) l9.setAttribute('componentkey', 'job-card-component-ref-' + CK_IDS[i]);
+});
+
+const cards6 = APP.getDomCards(s6.doc);
+const ids6 = cards6.map(function (c) { return SEL.extractFromCard(c).jobId; });
+console.log('  jobIds extraídos: ' + JSON.stringify(ids6));
+check('extrae el jobId de componentkey en todas las tarjetas',
+  ids6.length === CK_IDS.length && ids6.every(function (id, i) { return id === CK_IDS[i]; }),
+  JSON.stringify(ids6));
+check('el hash de idempotencia ahora usa el jobId real',
+  APP.hashOf(cards6[0], s6.doc).indexOf(CK_IDS[0]) === 0,
+  APP.hashOf(cards6[0], s6.doc).slice(0, 40));
+
+// Variantes de forma del atributo que conviene tolerar.
+(function variantes() {
+  const doc = s6.doc;
+  const casos = [
+    ['componentkey', 'job-card-component-ref-4111111111', '4111111111'],
+    ['componentkey', 'jobCardRef:4222222222', '4222222222'],
+    ['data-component-key', 'job-card-component-ref-4333333333', '4333333333'],
+    ['componentkey', 'search-filter-component-ref-99', ''],   // no es una vacante
+    ['componentkey', 'job-card-footer', ''],                   // sin dígitos
+  ];
+  let okAll = true;
+  const got = [];
+  casos.forEach(function (c) {
+    const w = doc.createElement('div');
+    const card = doc.createElement('div');
+    const inner = doc.createElement('div');
+    inner.setAttribute(c[0], c[1]);
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «X»');
+    inner.appendChild(b);
+    card.appendChild(inner);
+    w.appendChild(card);
+    const res = SEL.extractFromCard(card).jobId;
+    got.push(c[1] + ' → ' + JSON.stringify(res));
+    if (res !== c[2]) okAll = false;
+  });
+  check('tolera variantes del atributo y rechaza los que no son vacantes', okAll, got.join(' | '));
+})();
+
 console.log('\n═══ Ruido de UI real: no debe contaminar título ni empresa ═══');
 const NOISE_LINES = ['·', 'Publicado hace 5 meses', 'Evaluando solicitudes de forma activa', 'Solicitados'];
 const s5 = buildDom2026();
@@ -436,7 +490,446 @@ check('un título que EMPIEZA con "es" no se filtra como ruido',
 check('una empresa que EMPIEZA con "en" no se filtra como ruido',
   esData.company === 'Encargados SA', JSON.stringify(esData.company));
 
-console.log('\n────────────────────────────────────────');
-console.log('  ' + pass + ' ok, ' + fail + ' fallo(s)');
-console.log('────────────────────────────────────────\n');
-process.exit(fail === 0 ? 0 : 1);
+// ── Escenario 10: abrir la vacante SIEMPRE corrige la etiqueta ─────────────
+// Reporte de campo: "3 vacantes en inglés etiquetadas ES, y no cambiaba su
+// etiqueta incluso después de haber abierto la tarjeta".
+// Causa: el hash miraba el panel de detalle sólo en el `else` de la caché. Una
+// vez que la caché tenía un valor (aunque fuera equivocado), el hash dejaba de
+// cambiar al abrir la vacante → processCard reusaba la etiqueta vieja → tagCard
+// nunca corría. La descripción del panel es el texto que el usuario está VIENDO:
+// tiene que poder corregir cualquier valor cacheado.
+console.log('\n═══ Abrir la vacante corrige una etiqueta cacheada mal ═══');
+(function escenario10() {
+  const s10 = buildDom2026();
+  global.window = s10.dom.window;
+  global.document = s10.dom.window.document;
+
+  const ID = '4488001122';
+  const TITULO = 'Account Manager';
+  const card = (function () {
+    const doc = s10.doc;
+    const w = doc.createElement('div');
+    w.setAttribute('style', 'display:contents');
+    const c = doc.createElement('div');
+    c.setAttribute('data-test-card', 'poisoned');
+    const inner = doc.createElement('div');
+    inner.setAttribute('componentkey', 'job-card-component-ref-' + ID);
+    [TITULO, 'Telefónica', 'Rosario (Híbrido)'].forEach(function (t) {
+      const p = doc.createElement('p'); p.textContent = t; inner.appendChild(p);
+    });
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «' + TITULO + '»');
+    inner.appendChild(b);
+    c.appendChild(inner);
+    w.appendChild(c);
+    s10.list.appendChild(w);
+    return c;
+  })();
+
+  // Simular el estado que reportó el usuario: la caché quedó envenenada con 'es'
+  // (por ejemplo, un fetch que capturó chrome de la página pública en español).
+  APP.FETCH_CACHE[ID] = 'es';
+  APP.processAll(s10.doc, { getDescription: APP.makeGetDescription(s10.doc), health: false });
+  check('la tarjeta arranca con la etiqueta ES envenenada de la caché',
+    card.getAttribute('data-llf-lang') === 'es', card.getAttribute('data-llf-lang'));
+
+  // El usuario abre la vacante: el panel muestra el aviso, que está en INGLÉS.
+  const pane = s10.doc.createElement('div');
+  const top = s10.doc.createElement('div');
+  const dis = s10.doc.createElement('button');
+  dis.setAttribute('aria-label', 'Descartar empleo «' + TITULO + '»');
+  top.appendChild(dis);
+  const body = s10.doc.createElement('div');
+  body.id = 'job-details';
+  body.textContent = 'We are looking for an experienced account manager to join our sales team. ' +
+    'You will be responsible for managing a portfolio of key clients and for building long term ' +
+    'relationships with them. The ideal candidate has strong communication skills.';
+  pane.appendChild(top); pane.appendChild(body);
+  s10.doc.body.firstChild.appendChild(pane);
+  // La URL apunta a esa vacante (es como se identifica la vacante abierta).
+  s10.dom.reconfigure({ url: 'https://www.linkedin.com/jobs/search-results/?currentJobId=' + ID });
+
+  APP.processAll(s10.doc, { getDescription: APP.makeGetDescription(s10.doc), health: false });
+  check('al abrir la vacante, la etiqueta se corrige a EN',
+    card.getAttribute('data-llf-lang') === 'en',
+    card.getAttribute('data-llf-lang') + ' (src=' + card.getAttribute('data-llf-src') + ')');
+  check('la corrección sobrescribe la caché envenenada',
+    APP.FETCH_CACHE[ID] === 'en', JSON.stringify(APP.FETCH_CACHE[ID]));
+
+  // Y persiste cuando el panel se cierra.
+  if (pane.parentNode) pane.parentNode.removeChild(pane);
+  APP.processAll(s10.doc, { getDescription: APP.makeGetDescription(s10.doc), health: false });
+  check('la corrección persiste tras cerrar el panel',
+    card.getAttribute('data-llf-lang') === 'en', card.getAttribute('data-llf-lang'));
+})();
+
+// ── Escenario 11: la descripción del endpoint público debe ser confiable ───
+// Si el fetch captura el chrome de la página pública (menú, footer, "Empleos
+// similares"), está todo en español y cualquier aviso en inglés sale 'es'.
+// Ante la duda hay que devolver '' y dejar la vacante en '??': un «??» honesto
+// es mejor que una etiqueta equivocada que además queda cacheada.
+console.log('\n═══ Extracción de la descripción del endpoint público ═══');
+(function escenario11() {
+  // Largo realista a propósito: v0.5.7 exige 180+ caracteres y 30+ palabras
+  // para confiar en un texto como evidencia de idioma. Un bloque de metadatos
+  // ("Seniority level / Employment type") no llega, y un aviso real sí.
+  const DESC_EN = 'We are looking for a senior backend engineer with solid experience in ' +
+    'distributed systems and cloud infrastructure. You will design and build services, ' +
+    'review code from other members of the team and help us shape the technical roadmap ' +
+    'of the platform. We expect strong communication skills and the ability to work ' +
+    'autonomously in a remote first environment. Previous experience mentoring other ' +
+    'developers is considered a plus for this position.';
+
+  const okHtml = '<html><body><div class="show-more-less-html__markup relative">' +
+    '<p>' + DESC_EN + '</p></div></body></html>';
+  const extraida = SEL.extractDescriptionFromHTML(okHtml);
+  check('extrae la descripción real del contenedor público',
+    extraida.indexOf('senior backend engineer') !== -1, JSON.stringify(extraida.slice(0, 60)));
+  check('y esa descripción se detecta como EN',
+    SEL.detect(extraida).lang === 'en', SEL.detect(extraida).lang);
+
+  // El caso peligroso: no hay contenedor de descripción, pero sí media página
+  // pública en español. Antes esto se capturaba hasta el final del documento.
+  const chromeHtml = '<html><body><div id="job-details">' +
+    '<p>' + DESC_EN + '</p></div>' +
+    '<footer><a>Iniciar sesión</a><a>Regístrate</a><h2>Empleos similares</h2>' +
+    '<a>Aviso de privacidad</a><a>Política de cookies</a><a>Condiciones de uso</a>' +
+    '<p>Explorá empleos en Argentina, Brasil y el resto del mundo con la comunidad de LinkedIn</p>' +
+    '</footer></body></html>';
+  const chromeOut = SEL.extractDescriptionFromHTML(chromeHtml);
+  check('descarta la captura cuando arrastra chrome de la página pública',
+    chromeOut === '', JSON.stringify(chromeOut.slice(0, 80)));
+  check('el detector de chrome reconoce el patrón',
+    SEL.looksLikeGuestChrome('Iniciar sesión Regístrate Empleos similares') === true);
+  check('y no marca como chrome una descripción normal',
+    SEL.looksLikeGuestChrome(DESC_EN) === false);
+  check('un HTML sin descripción devuelve vacío (no adivina)',
+    SEL.extractDescriptionFromHTML('<html><body><p>nada útil</p></body></html>') === '');
+
+  // El caso que causaba las etiquetas ES equivocadas: sin panel abierto, la
+  // "descripción" no debe salir del listado de vacantes (todo en español).
+  const soloLista = buildDom2026();
+  const textoSinPanel = SEL.getDetailDescription(soloLista.doc);
+  check('sin panel de detalle NO se devuelve el texto de la lista como descripción',
+    textoSinPanel === '', JSON.stringify(String(textoSinPanel).slice(0, 80)));
+  check('looksLikeJobList reconoce el listado por sus cadenas repetidas',
+    SEL.looksLikeJobList('Publicado hace 5 meses Evaluando solicitudes de forma activa ' +
+      'Publicado hace 1 semana Solicitados') === true);
+  check('y no confunde una descripción real con el listado',
+    SEL.looksLikeJobList(DESC_EN) === false);
+
+  // ── El error MÁS GRAVE: un aviso en español clasificado EN ────────────────
+  // Reporte de campo: "Analista de Transformación Digital" salió EN. En la
+  // página pública, el bloque de metadatos del aviso viene en INGLÉS aunque el
+  // aviso esté en español. Si se captura ese bloque en vez del cuerpo, un aviso
+  // español se marca EN — y en modo ocultar, se esconde una vacante válida.
+  const CRITERIA_EN = 'Seniority level Mid-Senior level Employment type Full-time ' +
+    'Job function Information Technology Industries Software Development ' +
+    'Referrals increase your chances of interviewing at this company by 2x ' +
+    'Get notified about new Analyst jobs in Rosario, Santa Fe, Argentina.';
+  check('el bloque de metadatos en inglés se reconoce como tal',
+    SEL.looksLikeCriteriaBlock(CRITERIA_EN) === true);
+  check('y NO se acepta como evidencia de idioma (evita marcar EN un aviso ES)',
+    SEL.isTrustworthyDescription(CRITERIA_EN) === false,
+    'palabras=' + CRITERIA_EN.split(/\s+/).length);
+  check('un texto de 20 palabras nunca alcanza para decidir un idioma',
+    SEL.isTrustworthyDescription('Buscamos analista para el área comercial de la empresa en Rosario zona sur') === false);
+  check('una descripción larga y real sí se acepta',
+    SEL.isTrustworthyDescription(DESC_EN) === true,
+    'chars=' + DESC_EN.length + ' palabras=' + DESC_EN.split(/\s+/).length);
+
+  // Y el caso end-to-end: HTML público cuyo único texto es el bloque de
+  // metadatos en inglés → no se extrae nada → la vacante queda en «??».
+  const soloCriteria = '<html><body><div class="show-more-less-html__markup">' +
+    CRITERIA_EN + '</div></body></html>';
+  check('un HTML con solo metadatos en inglés no produce descripción',
+    SEL.extractDescriptionFromHTML(soloCriteria) === '',
+    JSON.stringify(SEL.extractDescriptionFromHTML(soloCriteria).slice(0, 60)));
+})();
+
+// ── Escenario 12: textos REALES capturados en campo (2026-08-06) ───────────
+// Medidos con __LJF_DIAG.fetchTest() y .panelText() sobre dos vacantes reales.
+// Fijan la decisión de v0.5.8: el endpoint público es confiable, el panel no.
+console.log('\n═══ Textos reales de campo: fetch confiable, panel inservible ═══');
+(function escenario12() {
+  // Vacante ES — descripción del endpoint público (514 palabras, prosa limpia).
+  const ES_FETCH = 'America Digital busca profesionales con formación académica en comunicación y ' +
+    'periodismo. Con más de 2 años de experiencia en procesos B2B y social selling en plataformas ' +
+    'como Facebook, LinkedIn, Twitter y YouTube. El candidato ideal estará enfocado en generación ' +
+    'de leads calificados, análisis de datos y en el cumplimiento de los objetivos comerciales de ' +
+    'venta de delegaciones empresas al congreso America Digital y a la venta de nuestro medio.';
+  // Vacante EN — descripción del endpoint público (296 palabras).
+  const EN_FETCH = 'Company Description Louis Dreyfus Company is a leading merchant and processor ' +
+    'of agricultural goods. Our activities span the entire value chain, from field to table. ' +
+    'Through a diverse portfolio of business lines, we leverage our global reach and extensive ' +
+    'asset network to serve customers and consumers around the world. Strong stakeholder ' +
+    'management skills. Experience in industrial or operational environments is a plus.';
+  // Lo que devolvía el PANEL de la vacante EN: chrome en español sobre un aviso
+  // en inglés. El detector lo llama 'es' — de ahí las etiquetas equivocadas.
+  const PANEL_EN = 'Ssr. Learning & Development Analyst Louis Dreyfus Company • Rosario, Santa Fe, ' +
+    'Argentina Guardar Solicitar Louis Dreyfus Company Ssr. Learning & Development Analyst ' +
+    'Rosario, Santa Fe, Argentina · Compartido hace 3 semanas · Más de 100 personas han hecho ' +
+    'clic en «Solicitar» Respuestas gestionadas fuera de LinkedIn Estado de la solicitud';
+
+  check('la descripción real ES del endpoint se detecta como es',
+    SEL.detect(ES_FETCH).lang === 'es', SEL.detect(ES_FETCH).lang);
+  check('la descripción real EN del endpoint se detecta como en',
+    SEL.detect(EN_FETCH).lang === 'en', SEL.detect(EN_FETCH).lang);
+  check('el texto del panel de una vacante EN se detectaría como es (por eso se descartó)',
+    SEL.detect(PANEL_EN).lang === 'es', SEL.detect(PANEL_EN).lang);
+
+  // Panel de la UI 2026 (sin contenedor explícito) → no se usa como descripción.
+  const panelDom = new JSDOM('<!doctype html><html><body>' +
+    '<div id="pane"><a href="/jobs/view/4434650098/">Ssr. Learning &amp; Development Analyst</a>' +
+    '<div>' + PANEL_EN + '</div></div></body></html>', { pretendToBeVisual: true });
+  check('sin #job-details ni .jobs-description, el panel NO aporta descripción',
+    SEL.getDetailDescription(panelDom.window.document) === '',
+    JSON.stringify(String(SEL.getDetailDescription(panelDom.window.document)).slice(0, 70)));
+
+  // Con contenedor explícito (UI legacy) sí se usa.
+  const legacyDom = new JSDOM('<!doctype html><html><body>' +
+    '<div id="job-details">' + EN_FETCH + '</div></body></html>', { pretendToBeVisual: true });
+  check('con #job-details (UI legacy) el panel sí aporta la descripción',
+    SEL.getDetailDescription(legacyDom.window.document).indexOf('Louis Dreyfus') !== -1);
+})();
+
+// ── Escenario 13: nodo reciclado durante un fetch en vuelo ─────────────────
+// Explica la paradoja de campo: la descripción de "Especialista en Marketing -
+// Prospección B2B" es 100% española (26 hits ES, 0 EN) y la tarjeta salió EN.
+// `card` se captura al lanzar la petición; si LinkedIn recicla ese nodo antes de
+// que llegue la respuesta, se le estampa el idioma de OTRA vacante.
+(async function escenario13() {
+  console.log('\n═══ Nodo reciclado mientras el fetch está en vuelo ═══');
+  const s13 = buildDom2026();
+  global.window = s13.dom.window;
+  global.document = s13.dom.window.document;
+
+  const ID_VIEJO = '4400000001';
+  const ID_NUEVO = '4400000002';
+  const inner = (function () {
+    const doc = s13.doc;
+    const w = doc.createElement('div');
+    const c = doc.createElement('div');
+    const i = doc.createElement('div');
+    i.setAttribute('componentkey', 'job-card-component-ref-' + ID_VIEJO);
+    const p = doc.createElement('p'); p.textContent = 'Tech Lead'; i.appendChild(p);
+    const p2 = doc.createElement('p'); p2.textContent = 'Kunan'; i.appendChild(p2);
+    const p3 = doc.createElement('p'); p3.textContent = 'Rosario (Híbrido)'; i.appendChild(p3);
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «Tech Lead»');
+    i.appendChild(b);
+    c.appendChild(i);
+    w.appendChild(c);
+    s13.list.appendChild(w);
+    return i;
+  })();
+  const card13 = inner.parentElement;
+
+  const realFetch = global.fetch;
+  global.fetch = function () {
+    return Promise.resolve({
+      ok: true,
+      text: function () {
+        return Promise.resolve('<div class="show-more-less-html__markup">' +
+          'We are hiring a technical leader to drive the architecture of our platform and to ' +
+          'mentor the engineering team. You will work closely with product managers and with ' +
+          'other senior engineers on the design of new services and on the quality of the code.' +
+          '</div>');
+      },
+    });
+  };
+
+  try {
+    APP.processAll(s13.doc, { health: false }); // dispara el fetch para ID_VIEJO
+    // LinkedIn recicla el nodo ANTES de que llegue la respuesta.
+    inner.setAttribute('componentkey', 'job-card-component-ref-' + ID_NUEVO);
+    await new Promise(function (r) { setTimeout(r, 20); });
+
+    check('la caché guarda el idioma bajo el jobId correcto',
+      APP.FETCH_CACHE[ID_VIEJO] === 'en', JSON.stringify(APP.FETCH_CACHE[ID_VIEJO]));
+    check('el nodo reciclado NO recibe el idioma de la vacante vieja',
+      card13.getAttribute('data-llf-lang') !== 'en',
+      'lang=' + card13.getAttribute('data-llf-lang'));
+    check('y la vacante vieja no quedó sin cachear (se resuelve al reaparecer)',
+      typeof APP.FETCH_CACHE[ID_VIEJO] === 'string');
+  } finally {
+    global.fetch = realFetch;
+  }
+})();
+
+// ── Escenario 9: canario de salud ──────────────────────────────────────────
+// En un mismo día hubo dos fallas silenciosas: badges invisibles (v0.5.3) y
+// 19/19 tarjetas mal etiquetadas ES (v0.5.4). Ninguna avisó. Este canario las
+// convierte en un warning, una vez por sesión y por problema.
+console.log('\n═══ Canario de salud ═══');
+(function escenario9() {
+  const codes = function (h) { return h.issues.map(function (i) { return i.code; }); };
+
+  // (a) Página de empleos sin ninguna tarjeta → selectores rotos.
+  const vacio = new JSDOM('<!doctype html><html><body><div id="x"></div></body></html>',
+    { pretendToBeVisual: true, url: 'https://www.linkedin.com/jobs/search-results/' });
+  global.window = vacio.window;
+  global.document = vacio.window.document;
+  const hVacio = APP.health(vacio.window.document);
+  check('detecta 0 tarjetas en una página de empleos', codes(hVacio).indexOf('no-cards') !== -1,
+    JSON.stringify(codes(hVacio)));
+
+  // (b) Tarjetas presentes y etiquetadas → sin alarmas.
+  const sano = buildDom2026();
+  global.window = sano.dom.window;
+  global.document = sano.dom.window.document;
+  APP.processAll(sano.doc, { getDescription: APP.makeGetDescription(sano.doc), health: false });
+  const hSano = APP.health(sano.doc);
+  check('no alarma cuando hay tarjetas con badge', codes(hSano).indexOf('no-badges') === -1,
+    JSON.stringify(codes(hSano)));
+  check('cuenta las tarjetas y los badges', hSano.cards === JOBS.length && hSano.badges === JOBS.length,
+    'cards=' + hSano.cards + ' badges=' + hSano.badges);
+
+  // (c) Badges borrados por un re-render → alarma.
+  Array.prototype.forEach.call(sano.doc.querySelectorAll('.llf-badge'), function (b) { b.remove(); });
+  check('detecta tarjetas sin ningún badge', codes(APP.health(sano.doc)).indexOf('no-badges') !== -1);
+
+  // (d) Sin jobId en ninguna tarjeta → la Capa 4 quedaría muerta.
+  const sinId = buildDom2026();
+  global.window = sinId.dom.window;
+  global.document = sinId.dom.window.document;
+  for (let i = 0; i < 4; i++) {
+    const w = sinId.doc.createElement('div');
+    const card = sinId.doc.createElement('div');
+    const b = sinId.doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «Puesto ' + i + '»');
+    card.appendChild(b);
+    w.appendChild(card);
+    sinId.list.appendChild(w);
+  }
+  APP.processAll(sinId.doc, { health: false });
+  check('avisa cuando ninguna tarjeta expone jobId',
+    codes(APP.health(sinId.doc)).indexOf('no-jobids') !== -1,
+    JSON.stringify(codes(APP.health(sinId.doc))));
+
+  // (e) El canario no debe avisar dos veces por el mismo problema.
+  const antes = [];
+  const warnReal = console.warn;
+  console.warn = function (m) { antes.push(m); };
+  APP.health(sinId.doc);
+  APP.health(sinId.doc);
+  console.warn = warnReal;
+  check('no repite el warning del mismo problema', antes.length === 0,
+    'warnings repetidos=' + antes.length);
+})();
+
+// ── Escenario 8: la EMPRESA no debe decidir el idioma ─────────────────────
+// Regresión introducida en v0.5.4 y detectada en campo: al agregar el fallback
+// estructural de empresa, el nombre de la empresa entró al detector. Una sola
+// tilde ("Telefónica", "Córdoba", "Compañía") suma a weightedEs y gana por
+// proporción ANTES de que se consulte la capa de roles, así que títulos en
+// inglés salían 'es'. Medido: 130 de 288 combinaciones volteaban, y en campo
+// 19 de 19 tarjetas del camino por título quedaron etiquetadas ES.
+console.log('\n═══ El nombre de la empresa no decide el idioma ═══');
+const s8 = buildDom2026();
+global.window = s8.dom.window;
+global.document = s8.dom.window.document;
+
+function buildCard8(doc, list, title, company, meta) {
+  const w = doc.createElement('div');
+  w.setAttribute('style', 'display:contents');
+  const card = doc.createElement('div');
+  const inner = doc.createElement('div');
+  [title, company, meta].forEach(function (t) {
+    const p = doc.createElement('p'); p.textContent = t; inner.appendChild(p);
+  });
+  const b = doc.createElement('button');
+  b.setAttribute('aria-label', 'Descartar empleo «' + title + '»');
+  inner.appendChild(b);
+  card.appendChild(inner);
+  w.appendChild(card);
+  list.appendChild(w);
+  return card;
+}
+
+// Título inglés + empresa con tilde + REMOTO (para no disparar el fetch).
+const EMPRESAS_TILDE = ['Telefónica', 'Compañía de Servicios', 'Grupo Córdoba', 'Gestión y Logística'];
+const resultados8 = [];
+const cards8 = [];
+let todasEn = true;
+EMPRESAS_TILDE.forEach(function (emp, i) {
+  const c = buildCard8(s8.doc, s8.list, ['Account Manager', 'Product Owner', 'Data Engineer', 'Frontend Developer'][i],
+    emp, 'Buenos Aires (En remoto)');
+  cards8.push(c);
+  const r = APP.classify(c, null);
+  resultados8.push(r.title + ' + ' + emp + ' → ' + r.lang);
+  if (r.lang !== 'en') todasEn = false;
+});
+check('un título en inglés con empresa acentuada NO se etiqueta ES', todasEn,
+  resultados8.join(' | '));
+check('la empresa se sigue extrayendo (clave de caché, hash y fixtures)',
+  cards8.every(function (c, i) { return SEL.extractFromCard(c).company === EMPRESAS_TILDE[i]; }),
+  cards8.map(function (c) { return SEL.extractFromCard(c).company; }).join(' | '));
+
+// Y el caso inverso: un título realmente español sigue dando ES por sí solo.
+const cEs = buildCard8(s8.doc, s8.list, 'Analista de Gestión Contable', 'Globant', 'Rosario (En remoto)');
+check('un título realmente español sigue dando ES sin ayuda de la empresa',
+  APP.classify(cEs, null).lang === 'es', APP.classify(cEs, null).lang);
+
+// ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
+// Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
+// endpoint público está caído o tira 429, cada pase del MutationObserver
+// pediría otra vez la misma vacante. Este test fija el tope.
+(async function escenario7() {
+  console.log('\n═══ Tope de reintentos del fetch de descripción ═══');
+  const s7 = buildDom2026();
+  global.window = s7.dom.window;
+  global.document = s7.dom.window.document;
+
+  const JOB_ID = '4499990000';
+  (function addAmbiguousWithId() {
+    const doc = s7.doc;
+    const w = doc.createElement('div');
+    const card = doc.createElement('div');
+    const inner = doc.createElement('div');
+    inner.setAttribute('componentkey', 'job-card-component-ref-' + JOB_ID);
+    const pT = doc.createElement('p'); pT.textContent = 'Tech Lead'; inner.appendChild(pT);
+    const pC = doc.createElement('p'); pC.textContent = 'Kunan'; inner.appendChild(pC);
+    const pM = doc.createElement('p'); pM.textContent = 'Rosario (Híbrido)'; inner.appendChild(pM);
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «Tech Lead»');
+    inner.appendChild(b);
+    card.appendChild(inner);
+    w.appendChild(card);
+    s7.list.appendChild(w);
+  })();
+
+  // Stub del fetch: cuenta llamadas y siempre falla (endpoint caído / 429).
+  const realFetch = global.fetch;
+  let calls = 0;
+  const urls = [];
+  global.fetch = function (url) {
+    calls++;
+    urls.push(String(url));
+    return Promise.reject(new Error('429 simulado'));
+  };
+
+  try {
+    for (let pass = 0; pass < 6; pass++) {
+      APP.processAll(s7.doc, { getDescription: APP.makeGetDescription(s7.doc) });
+      await new Promise(function (r) { setTimeout(r, 5); });
+    }
+    check('la tarjeta ambigua CON jobId dispara el fetch de la descripción', calls >= 1,
+      'llamadas=' + calls);
+    check('la URL pedida es el endpoint público de la vacante',
+      urls.length > 0 && urls[0].indexOf('/jobs-guest/jobs/api/jobPosting/' + JOB_ID) !== -1,
+      urls[0] || '(ninguna)');
+    check('6 pases con el endpoint caído NO generan más de 2 peticiones', calls <= 2,
+      'llamadas=' + calls + ' (tope MAX_TRIES=2)');
+    check('el contador de intentos queda registrado por jobId',
+      APP.FETCH_TRIED && APP.FETCH_TRIED[JOB_ID] <= 2,
+      JSON.stringify(APP.FETCH_TRIED));
+  } finally {
+    global.fetch = realFetch;
+  }
+
+  console.log('\n────────────────────────────────────────');
+  console.log('  ' + pass + ' ok, ' + fail + ' fallo(s)');
+  console.log('────────────────────────────────────────\n');
+  process.exit(fail === 0 ? 0 : 1);
+})();

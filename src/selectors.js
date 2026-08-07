@@ -203,9 +203,36 @@
         if (match) return match[1];
     }
 
-    // CAPA 2026: sin <a> ni data-job-id, el id puede sobrevivir en atributos de
-    // tracking (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un
-    // contexto explícito para no capturar cualquier número de la tarjeta.
+    // ── CAPA 2026 PRINCIPAL (medida en campo el 2026-08-06) ──────────────────
+    // El id SÍ sobrevive en la UI nueva, en un atributo plano de un div interno
+    // de la tarjeta (nivel L9 del mapa del DOM):
+    //     componentkey="job-card-component-ref-4376922531"
+    // Es un atributo, no una propiedad de React: se lee desde un content script
+    // en world AISLADO, sin tocar el manifest ni interceptar tráfico. Con esto
+    // vuelve a funcionar la Capa 4 (fetch de la descripción) en la lista.
+    const CK_ATTRS = '[componentkey],[componentKey],[data-component-key],[data-componentkey]';
+    const ckNodes = [];
+    if (card.matches && card.matches(CK_ATTRS)) ckNodes.push(card);
+    if (card.querySelectorAll) {
+      const found = card.querySelectorAll(CK_ATTRS);
+      for (let ci = 0; ci < found.length; ci++) ckNodes.push(found[ci]);
+    }
+    for (let ci = 0; ci < ckNodes.length; ci++) {
+      const n = ckNodes[ci];
+      const raw = (n.getAttribute('componentkey') || n.getAttribute('componentKey') ||
+                   n.getAttribute('data-component-key') || n.getAttribute('data-componentkey') || '');
+      if (!raw) continue;
+      // Forma exacta observada primero; después variantes ref/id; nunca un
+      // número suelto sin la palabra "job" delante (evita capturar tracking ids).
+      let m = raw.match(/^job-card-component-ref-(\d{5,14})$/i) ||
+              raw.match(/job[a-z-]*(?:ref|id)[-_:](\d{5,14})/i) ||
+              raw.match(/^job[a-z-]*?(\d{5,14})$/i);
+      if (m) return m[1];
+    }
+
+    // CAPA 2026 (respaldo): el id puede aparecer en atributos de tracking
+    // (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un contexto
+    // explícito para no capturar cualquier número de la tarjeta.
     const holders = [card];
     const holder = card.querySelector && card.querySelector(
       '[data-occludable-job-id],[data-job-posting-id],[data-entity-urn],[data-tracking-urn]'
@@ -330,6 +357,17 @@
   // Busca por aria-current="page", aria-current="true", o clases activas de la tarjeta.
   function getActiveJobId(root) {
     if (!root || !root.querySelector) return null;
+
+    // v0.5.7: la URL PRIMERO. Es la fuente más confiable de qué vacante está
+    // abierta en el panel, y no depende del DOM. Antes se probaba
+    // [aria-current="page"] primero, que en la UI 2026 puede ser un ítem de
+    // navegación (no una tarjeta) y devolver un id equivocado o vacío.
+    const hrefFirst = (root.location && root.location.href) ||
+                      (root.defaultView && root.defaultView.location && root.defaultView.location.href) ||
+                      (typeof window !== 'undefined' && window.location ? window.location.href : '');
+    const mFirst = String(hrefFirst || '').match(/currentJobId=(\d+)/);
+    if (mFirst) return mFirst[1];
+
     let active = root.querySelector('[aria-current="page"]') ||
                  root.querySelector('[aria-current="true"]') ||
                  root.querySelector('.jobs-search-results-list__list-item--active') ||
@@ -433,18 +471,67 @@
     return '';
   }
 
-  // Texto del panel de detalle (columna derecha) para la vacante activa.
-  // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
+  // ¿El texto es en realidad la LISTA de vacantes y no una descripción?
+  // Las tarjetas repiten cadenas de interfaz ("Publicado hace…", "Evaluando
+  // solicitudes…", "Solicitados"). Si aparecen varias veces, lo que se capturó
+  // es la lista entera, que está en el idioma de la interfaz y arruinaría la
+  // detección de cualquier aviso en inglés.
+  function looksLikeJobList(text) {
+    const low = (text || '').toLowerCase();
+    const marcas = ['publicado hace', 'evaluando solicitudes', 'postulación sencilla',
+                    'postulacion sencilla', 'solicitud sencilla', 'promocionado'];
+    let total = 0;
+    for (let i = 0; i < marcas.length; i++) {
+      let desde = 0;
+      let pos = low.indexOf(marcas[i], desde);
+      while (pos !== -1) {
+        total++;
+        if (total >= 3) return true;
+        desde = pos + marcas[i].length;
+        pos = low.indexOf(marcas[i], desde);
+      }
+    }
+    return false;
+  }
+
+  // Texto del aviso en el panel de detalle (columna derecha).
+  //
+  // v0.5.8 — MEDIDO EN CAMPO, no supuesto. El panel de la UI 2026 no tiene
+  // `#job-details` ni `.jobs-description` (verificado: `chars_contenedor: 0`), y
+  // el texto que se puede sacar de él es INSERVIBLE para detectar idioma:
+  //
+  //   panel de una vacante EN inglés → "Ssr. Learning & Development Analyst
+  //   Louis Dreyfus Company • Rosario, Santa Fe, Argentina Guardar Solicitar …
+  //   Compartido hace 3 semanas · Más de 100 personas han hecho clic en
+  //   «Solicitar» Respuestas gestionadas fuera de…"
+  //
+  // Es chrome en ESPAÑOL describiendo un aviso en INGLÉS: el detector lo llama
+  // 'es' (7 hits ES, 0 EN). El panel mezcla los dos idiomas por construcción, así
+  // que cualquier heurística sobre él es una moneda al aire sesgada al idioma de
+  // la interfaz. Y el nodo que se obtenía variaba entre páginas
+  // (`DIV._12fe6c88` vs `DIV._54e8c074…`), o sea que además era inestable.
+  //
+  // En cambio el endpoint público SÍ devuelve el cuerpo limpio y correcto —
+  // medido en las dos vacantes: 514 palabras de prosa española → 'es' (26 hits
+  // ES, 0 EN); 296 palabras de prosa inglesa → 'en' (18 hits EN, 0 ES). Y ahora
+  // hay `jobId` para las 25 tarjetas, así que esa vía cubre toda la lista.
+  //
+  // Decisión: sin contenedor explícito, se devuelve ''. La resolución por
+  // descripción queda a cargo del fetch (Capa 4), que es la fuente confiable.
+  // La heurística sobre el panel se elimina en vez de seguir parcheándola.
   function getDetailDescription(root) {
     if (!root || !root.querySelector) return '';
-    let detailRoot = root.querySelector('#job-details') ||
-                     root.querySelector('.jobs-description') ||
-                     root.querySelector('.jobs-description__content') ||
-                     root.querySelector('.jobs-details__main-content') ||
-                     root.querySelector('.jobs-details') ||
-                     root.querySelector('.jobs-search-two-pane__job-details') ||
-                     root.querySelector('main');
-    return descriptionFromDetail(detailRoot || root);
+    const explicito = root.querySelector('#job-details') ||
+                      root.querySelector('.jobs-description__content') ||
+                      root.querySelector('.jobs-description') ||
+                      root.querySelector('.jobs-box__html-content') ||
+                      root.querySelector('.jobs-details__main-content');
+    if (!explicito) return '';
+    const texto = descriptionFromDetail(explicito);
+    // Mismo criterio de confianza que para el endpoint público: si no parece el
+    // cuerpo de un aviso, mejor '' y que la vacante quede en '??'.
+    if (!isTrustworthyDescription(texto)) return '';
+    return texto;
   }
 
   // Detecta idioma de un texto (usa el detector puro).
@@ -518,18 +605,86 @@
     return out;
   }
 
+  // Chrome de la página pública de LinkedIn. Está en el idioma de la INTERFAZ
+  // del visitante (español, en este caso), así que si se cuela en el texto que
+  // va al detector, cualquier aviso en inglés termina clasificado como español.
+  const GUEST_CHROME = [
+    'iniciar sesión', 'inicia sesión', 'regístrate', 'crear cuenta', 'crear una cuenta',
+    'empleos similares', 'ver más empleos', 'aviso de privacidad', 'política de cookies',
+    'condiciones de uso', 'accesibilidad', 'sign in', 'join now', 'similar jobs',
+    'privacy policy', 'cookie policy', 'user agreement',
+  ];
+  function looksLikeGuestChrome(text) {
+    const low = (text || '').toLowerCase();
+    let hits = 0;
+    for (let i = 0; i < GUEST_CHROME.length; i++) {
+      if (low.indexOf(GUEST_CHROME[i]) !== -1) hits++;
+      if (hits >= 2) return true;
+    }
+    return false;
+  }
+
+  // Bloque de metadatos del aviso ("Seniority level / Employment type / Job
+  // function / Industries"). En la página pública viene en INGLÉS aunque el
+  // aviso esté en español, así que si se captura ese bloque en vez del cuerpo,
+  // un aviso en español se clasifica 'en'. Es el error más grave posible: en
+  // modo ocultar, esconde vacantes válidas.
+  const CRITERIA_MARKERS = [
+    'seniority level', 'employment type', 'job function', 'industries',
+    'referrals increase', 'get notified about new', 'similar jobs',
+    'nivel de antigüedad', 'tipo de empleo', 'función laboral', 'sectores',
+  ];
+  function looksLikeCriteriaBlock(text) {
+    const low = (text || '').toLowerCase();
+    let hits = 0;
+    for (let i = 0; i < CRITERIA_MARKERS.length; i++) {
+      if (low.indexOf(CRITERIA_MARKERS[i]) !== -1) hits++;
+      if (hits >= 2) return true;
+    }
+    return false;
+  }
+
+  // ¿Este texto es realmente el cuerpo de un aviso, y por lo tanto evidencia
+  // confiable de su idioma? (v0.5.7)
+  // El detector es bueno con prosa y malo con etiquetas de interfaz: 20 palabras
+  // de metadatos alcanzan para decidir un idioma equivocado, y ese resultado
+  // queda cacheado. Un aviso real tiene cientos de palabras. Ante la duda se
+  // devuelve '' y la vacante queda en '??' (fail-open).
+  function isTrustworthyDescription(text) {
+    const t = cleanText(text || '');
+    if (t.length < 180) return false;
+    const tokens = t.split(/\s+/).length;
+    if (tokens < 30) return false;
+    if (t.length > 30000) return false;      // se capturó media página
+    if (looksLikeGuestChrome(t)) return false;
+    if (looksLikeJobList(t)) return false;
+    // Bloque de metadatos suelto: corto y lleno de etiquetas. Si además es
+    // largo, probablemente traiga el cuerpo del aviso y sí sirve.
+    if (looksLikeCriteriaBlock(t) && tokens < 150) return false;
+    return true;
+  }
+
+  // Extrae la descripción de la respuesta del endpoint público de la vacante.
+  // v0.5.7: endurecido. Antes había patrones abiertos del tipo
+  //   /<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/
+  // que capturaban desde ese punto hasta el FINAL del documento: menú, footer,
+  // "Empleos similares", avisos legales… todo en español. Con eso, un aviso en
+  // inglés se clasificaba 'es' y el resultado quedaba cacheado.
+  // Criterio nuevo: ante la duda, devolver '' y dejar la vacante en '??'.
+  // Un '??' honesto es mejor que una etiqueta equivocada y persistente.
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    const match = htmlString.match(/<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/article>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/main>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const match =
+      // Contenedor real de la descripción en la página pública (el habitual).
+      htmlString.match(/<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      htmlString.match(/<section[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/section>/i) ||
+      // Variantes del DOM autenticado, todas ACOTADAS por su cierre.
+      htmlString.match(/<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i);
     if (!match) return '';
     const cleaned = cleanText(match[1].replace(/<[^>]+>/g, ' '));
-    if (cleaned.length < 50) return '';
+    if (!isTrustworthyDescription(cleaned)) return '';
     return cleaned;
   }
 
@@ -622,6 +777,10 @@
     extractPageSuccessFixture: extractPageSuccessFixture,
     descriptionFromDetail: descriptionFromDetail,
     extractDescriptionFromHTML: extractDescriptionFromHTML,
+    looksLikeGuestChrome: looksLikeGuestChrome,
+    looksLikeJobList: looksLikeJobList,
+    looksLikeCriteriaBlock: looksLikeCriteriaBlock,
+    isTrustworthyDescription: isTrustworthyDescription,
     getActiveJobId: getActiveJobId,
     getDetailTitle: getDetailTitle,
     getDetailCompany: getDetailCompany,

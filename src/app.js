@@ -76,11 +76,19 @@
       // re-etiquetado: al resolverse la vacante, el hash cambia y processCard
       // deja de reusar el '??' anterior.
       h += '|CACHE:' + FETCH_CACHE[ck];
-    } else {
-      const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-      const desc = panelDescriptionFor(card, d, document);
-      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     }
+    // v0.5.7 — BUG CORREGIDO: esto estaba en un `else` del bloque anterior, así
+    // que una vez que la caché tenía un valor (por ejemplo uno EQUIVOCADO puesto
+    // por el fetch en segundo plano), el hash ya no miraba el panel de detalle.
+    // Consecuencia reportada en campo: abrías la vacante, el panel mostraba el
+    // aviso en inglés, y la tarjeta seguía marcada ES para siempre. El hash no
+    // cambiaba, así que processCard reusaba la etiqueta anterior y tagCard nunca
+    // corría. Ahora se suman las dos señales: la descripción del panel es la
+    // evidencia más fuerte (es el texto que el usuario está viendo) y siempre
+    // debe poder corregir a la caché.
+    const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+    const desc = panelDescriptionFor(card, d, document);
+    if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     return h;
   }
 
@@ -136,16 +144,25 @@
   // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
   // ── Opción B (v0.4.0): Caché en memoria + Fetcher Asíncrono Silencioso ─────
-  const FETCH_CACHE = {}; // jobId -> lang
+  const FETCH_CACHE = {}; // clave -> lang
   const FETCH_PENDING = {};
+  const FETCH_TRIED = {}; // jobId -> intentos (tope duro, ver abajo)
   let activeFetches = 0;
   const MAX_CONCURRENT = 3;
+  // v0.5.6: tope de intentos por vacante. Sin esto, si el endpoint público está
+  // caído o devuelve 429, cada pase del MutationObserver (uno por lote de
+  // scroll) volvía a pedir la misma vacante: una tormenta de peticiones desde
+  // la cuenta del usuario. Con el jobId de vuelta en la UI 2026 este camino se
+  // ejecuta de verdad, así que el tope deja de ser teórico.
+  const MAX_TRIES = 2;
 
   function fetchJobDetail(jobId, card, doc) {
     if (!jobId || FETCH_CACHE[jobId] || FETCH_PENDING[jobId]) return;
+    if ((FETCH_TRIED[jobId] || 0) >= MAX_TRIES) return;
     if (activeFetches >= MAX_CONCURRENT) return;
 
     FETCH_PENDING[jobId] = true;
+    FETCH_TRIED[jobId] = (FETCH_TRIED[jobId] || 0) + 1;
     activeFetches++;
 
     const url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + jobId;
@@ -159,10 +176,28 @@
           if (desc && desc.trim()) {
             const lang = detector.detectLanguage(desc).lang;
             if (lang === 'es' || lang === 'en') {
+              // La caché se escribe SIEMPRE: está indexada por jobId, así que es
+              // correcta pase lo que pase con el nodo.
               FETCH_CACHE[jobId] = lang;
-              tagCard(card, function () { return desc; }, doc, { force: true });
-              const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-              applyAction(card, { lang: lang }, document);
+
+              // v0.5.8 — GUARDA CONTRA NODOS RECICLADOS. `card` se capturó
+              // cuando se lanzó la petición. LinkedIn reutiliza los nodos del
+              // DOM al re-renderizar y scrollear, así que cuando la respuesta
+              // llega ese nodo puede estar mostrando OTRA vacante. Etiquetarlo
+              // le pega el idioma de una vacante al aviso de otra.
+              // Explica la paradoja medida en campo: la descripción de
+              // "Especialista en Marketing - Prospección B2B" es 100% español
+              // (26 hits ES, 0 EN) y sin embargo la tarjeta salió EN.
+              // Si el nodo ya no corresponde, no se toca: la tarjeta correcta
+              // toma el valor de la caché en el próximo pase del observer.
+              const idAhora = selectors.extractFromCard(card).jobId;
+              if (idAhora && idAhora !== jobId) {
+                _dbg('  → fetch de', jobId, 'descartado: el nodo ahora muestra', idAhora);
+              } else {
+                tagCard(card, function () { return desc; }, doc, { force: true });
+                const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+                applyAction(card, { lang: lang }, document);
+              }
             }
           }
         })
@@ -221,8 +256,21 @@
       return data;
     }
 
-    // 3. Capa de detección por título + empresa + modalidad
-    const detInput = (data.title || '') + ' ' + (data.company || '');
+    // 3. Capa de detección por TÍTULO + modalidad
+    // v0.5.6: el nombre de la empresa NO es evidencia del idioma del aviso.
+    // "Telefónica" no lo vuelve español ni "Globant" inglés. Peor: inyecta
+    // tildes y stopwords ES que activan la Regla de Oro de Diacríticos del
+    // detector (accentHits suma a weightedEs y gana por proporción ANTES de que
+    // se consulte la capa de roles). Medido con tests/_tmp_bias: 130 de 288
+    // combinaciones "título en inglés + empresa" volteaban a 'es' solo por eso,
+    // y en campo dejó 19 de 19 tarjetas del camino por título etiquetadas ES.
+    // La empresa se sigue extrayendo: sirve para la clave de caché, el hash y
+    // los fixtures del reporter, pero no para decidir el idioma.
+    // Único caso en que se agrega: cuando el título no se pudo leer (UI legacy,
+    // donde a veces el texto del título no era accesible y la empresa era la
+    // única señal disponible).
+    const titleText = (data.title || '').trim();
+    const detInput = (titleText.length >= 3) ? titleText : (titleText + ' ' + (data.company || ''));
     const detRes = detector.detectLanguage(detInput, { modality: data.modality });
     data.lang = detRes.lang;
     data.isAmbiguous = detRes.isAmbiguous || false;
@@ -570,7 +618,14 @@
         else if (reporterBtn.parentNode) reporterBtn.parentNode.removeChild(reporterBtn);
       }
     }
-    if (card.setAttribute) card.setAttribute('data-llf-lang', data.lang);
+    if (card.setAttribute) {
+      card.setAttribute('data-llf-lang', data.lang);
+      // v0.5.6: exponer DE DÓNDE salió el idioma. Sin esto no hay forma de
+      // saber en campo si una tarjeta se clasificó por el título (señal débil)
+      // o por la descripción real del aviso (señal fuerte), y por lo tanto no
+      // se puede validar una mejora de precisión: solo se ve el resultado.
+      card.setAttribute('data-llf-src', data.langSource || 'title');
+    }
     return data;
   }
 
@@ -687,6 +742,102 @@
     if (unkNode) unkNode.textContent = stats.unknownCount;
   }
 
+  // ── Canario de salud (v0.5.6) ──────────────────────────────────────────────
+  // Motivación empírica: en un mismo día hubo DOS fallas silenciosas seguidas.
+  //   1. v0.5.3 dejó de etiquetar la lista (badges anclados en un wrapper 0x0).
+  //   2. v0.5.4 etiquetó 19 de 19 tarjetas como ES por contaminar el input del
+  //      detector con el nombre de la empresa.
+  // Ninguna avisó nada: se detectaron porque el usuario las vio. Este canario
+  // convierte esas fallas en un warning en consola, una sola vez por sesión y
+  // por problema (nunca en bucle), y queda disponible como API para el popup.
+  const HEALTH_WARNED = {};
+  let FIRST_RUN_AT = 0;
+
+  function health(root) {
+    const doc = root || (typeof window !== 'undefined' ? window.document : null);
+    const out = { issues: [], cards: 0, badges: 0, withJobId: 0, byDescription: 0, unknowns: 0 };
+    if (!doc || !doc.querySelectorAll) return out;
+
+    const cards = getDomCards(doc);
+    out.cards = cards.length;
+    out.badges = doc.querySelectorAll('.llf-badge').length;
+
+    let misplaced = 0;
+    let measurable = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i];
+      if (selectors.extractFromCard(c).jobId) out.withJobId++;
+      const src = c.getAttribute && c.getAttribute('data-llf-src');
+      if (src === 'description' || src === 'async-fetch' || src === 'panel-cache') out.byDescription++;
+      if (c.getAttribute && c.getAttribute('data-llf-lang') === 'unknown') out.unknowns++;
+
+      // Geometría: solo se evalúa si hay layout real (en jsdom todo es 0 y en
+      // una lista virtualizada las tarjetas fuera de vista también).
+      if (i < 4 && hasLayoutBox(c) && c.getBoundingClientRect) {
+        const badge = c.querySelector && c.querySelector('.llf-badge');
+        if (badge && badge.getBoundingClientRect) {
+          const cr = c.getBoundingClientRect();
+          const br = badge.getBoundingClientRect();
+          if (br.width > 0 || br.height > 0) {
+            measurable++;
+            const dentro = br.left >= cr.left - 4 && br.left <= cr.right + 4 &&
+                           br.top >= cr.top - 4 && br.top <= cr.bottom + 4;
+            if (!dentro) misplaced++;
+          }
+        }
+      }
+    }
+
+    const onJobs = (typeof window !== 'undefined' && window.location &&
+                    String(window.location.pathname || '').indexOf('/jobs/') !== -1);
+    const elapsed = FIRST_RUN_AT ? (Date.now() - FIRST_RUN_AT) : 0;
+
+    if (onJobs && cards.length === 0) {
+      out.issues.push({
+        code: 'no-cards',
+        msg: 'CERO tarjetas detectadas en una página de empleos. LinkedIn probablemente cambió el DOM. ' +
+             'Diagnóstico: pegar tools/diagnose_linkedin_dom.js y correr __LJF_DIAG.ariaLabels().',
+      });
+    } else if (cards.length > 0) {
+      if (out.badges === 0) {
+        out.issues.push({ code: 'no-badges', msg: cards.length + ' tarjetas detectadas pero NINGÚN badge inyectado.' });
+      }
+      if (measurable > 0 && misplaced === measurable) {
+        out.issues.push({
+          code: 'badges-misplaced',
+          msg: 'los badges se están dibujando FUERA de su tarjeta (falta ancla con caja de layout). ' +
+               'Fue el bug de v0.5.3: revisar getDomCards/.llf-badge-host.',
+        });
+      }
+      if (cards.length >= 5 && out.withJobId === 0) {
+        out.issues.push({
+          code: 'no-jobids',
+          msg: 'ninguna tarjeta expone jobId: la Capa 4 (descripción) queda inactiva y van a sobrar «??». ' +
+               'Revisar el atributo componentkey en jobIdFromCard(); verificar con __LJF_DIAG.hunt().',
+        });
+      }
+      // Capa 4 en silencio: hay ids y dudosas, pero nada se resolvió por
+      // descripción pasados 15 s. Puede ser el endpoint público caído.
+      if (out.withJobId > 0 && out.unknowns >= 4 && out.byDescription === 0 && elapsed > 15000) {
+        out.issues.push({
+          code: 'layer4-idle',
+          msg: out.unknowns + ' tarjetas en «??» y ninguna resuelta por descripción tras 15 s. ' +
+               'Puede estar bloqueado el endpoint público (ver FETCH_TRIED).',
+        });
+      }
+    }
+
+    for (let k = 0; k < out.issues.length; k++) {
+      const it = out.issues[k];
+      if (HEALTH_WARNED[it.code]) continue;
+      HEALTH_WARNED[it.code] = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[LangJobs] ⚠️ ' + it.code + ': ' + it.msg);
+      }
+    }
+    return out;
+  }
+
   const LAST_ERRORS = [];
   function processAll(root, opts) {
     opts = opts || {};
@@ -706,6 +857,10 @@
     });
     const document = root.ownerDocument || (typeof window !== 'undefined' ? window.document : root);
     renderBetaSuccessBanner(document, opts);
+    if (!FIRST_RUN_AT) FIRST_RUN_AT = Date.now();
+    if (opts.health !== false) {
+      try { health(root); } catch (e) { /* el canario nunca debe romper el etiquetado */ }
+    }
     return res;
   }
 
@@ -757,13 +912,14 @@
     // v0.5.4: en la UI 2026 las tarjetas no tienen data-job-id; se limpian por
     // las marcas propias (data-llf-*) y por la clase host del badge.
     const cards = document.querySelectorAll(
-      '[data-llf-lang],[data-llf-hash],.' + CLS.host + ',[data-job-id]'
+      '[data-llf-lang],[data-llf-hash],[data-llf-src],.' + CLS.host + ',[data-job-id]'
     );
     Array.prototype.slice.call(cards).forEach(function (card) {
       if (!isJobCardContainer(card)) return;
       if (card.removeAttribute) {
         card.removeAttribute('data-llf-lang');
         card.removeAttribute('data-llf-hash');
+        card.removeAttribute('data-llf-src');
       }
       if (card.classList) card.classList.remove(CLS.hidden, CLS.dim, CLS.host);
       if (card.style && card.style.removeProperty) card.style.removeProperty('display');
@@ -884,6 +1040,8 @@
   return {
     run: run,
     observe: observe,
+    FETCH_TRIED: FETCH_TRIED,
+    FETCH_CACHE: FETCH_CACHE,
     processAll: processAll,
     processCard: processCard,
     tagCard: tagCard,
@@ -892,6 +1050,7 @@
     setConfig: setConfig,
     clearAll: clearAll,
     classify: classify,
+    health: health,
     getDomCards: getDomCards,
     extract: selectors.extractFromCard,
     hashOf: hashOf,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.5.5
+// @version      0.5.8
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -562,9 +562,36 @@
         if (match) return match[1];
     }
 
-    // CAPA 2026: sin <a> ni data-job-id, el id puede sobrevivir en atributos de
-    // tracking (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un
-    // contexto explícito para no capturar cualquier número de la tarjeta.
+    // ── CAPA 2026 PRINCIPAL (medida en campo el 2026-08-06) ──────────────────
+    // El id SÍ sobrevive en la UI nueva, en un atributo plano de un div interno
+    // de la tarjeta (nivel L9 del mapa del DOM):
+    //     componentkey="job-card-component-ref-4376922531"
+    // Es un atributo, no una propiedad de React: se lee desde un content script
+    // en world AISLADO, sin tocar el manifest ni interceptar tráfico. Con esto
+    // vuelve a funcionar la Capa 4 (fetch de la descripción) en la lista.
+    const CK_ATTRS = '[componentkey],[componentKey],[data-component-key],[data-componentkey]';
+    const ckNodes = [];
+    if (card.matches && card.matches(CK_ATTRS)) ckNodes.push(card);
+    if (card.querySelectorAll) {
+      const found = card.querySelectorAll(CK_ATTRS);
+      for (let ci = 0; ci < found.length; ci++) ckNodes.push(found[ci]);
+    }
+    for (let ci = 0; ci < ckNodes.length; ci++) {
+      const n = ckNodes[ci];
+      const raw = (n.getAttribute('componentkey') || n.getAttribute('componentKey') ||
+                   n.getAttribute('data-component-key') || n.getAttribute('data-componentkey') || '');
+      if (!raw) continue;
+      // Forma exacta observada primero; después variantes ref/id; nunca un
+      // número suelto sin la palabra "job" delante (evita capturar tracking ids).
+      let m = raw.match(/^job-card-component-ref-(\d{5,14})$/i) ||
+              raw.match(/job[a-z-]*(?:ref|id)[-_:](\d{5,14})/i) ||
+              raw.match(/^job[a-z-]*?(\d{5,14})$/i);
+      if (m) return m[1];
+    }
+
+    // CAPA 2026 (respaldo): el id puede aparecer en atributos de tracking
+    // (urn:li:jobPosting:NNN, data-occludable-job-id, …). Se exige un contexto
+    // explícito para no capturar cualquier número de la tarjeta.
     const holders = [card];
     const holder = card.querySelector && card.querySelector(
       '[data-occludable-job-id],[data-job-posting-id],[data-entity-urn],[data-tracking-urn]'
@@ -689,6 +716,17 @@
   // Busca por aria-current="page", aria-current="true", o clases activas de la tarjeta.
   function getActiveJobId(root) {
     if (!root || !root.querySelector) return null;
+
+    // v0.5.7: la URL PRIMERO. Es la fuente más confiable de qué vacante está
+    // abierta en el panel, y no depende del DOM. Antes se probaba
+    // [aria-current="page"] primero, que en la UI 2026 puede ser un ítem de
+    // navegación (no una tarjeta) y devolver un id equivocado o vacío.
+    const hrefFirst = (root.location && root.location.href) ||
+                      (root.defaultView && root.defaultView.location && root.defaultView.location.href) ||
+                      (typeof window !== 'undefined' && window.location ? window.location.href : '');
+    const mFirst = String(hrefFirst || '').match(/currentJobId=(\d+)/);
+    if (mFirst) return mFirst[1];
+
     let active = root.querySelector('[aria-current="page"]') ||
                  root.querySelector('[aria-current="true"]') ||
                  root.querySelector('.jobs-search-results-list__list-item--active') ||
@@ -792,18 +830,67 @@
     return '';
   }
 
-  // Texto del panel de detalle (columna derecha) para la vacante activa.
-  // Busca primero el contenedor de detalle; si no, heuristica sobre <main>.
+  // ¿El texto es en realidad la LISTA de vacantes y no una descripción?
+  // Las tarjetas repiten cadenas de interfaz ("Publicado hace…", "Evaluando
+  // solicitudes…", "Solicitados"). Si aparecen varias veces, lo que se capturó
+  // es la lista entera, que está en el idioma de la interfaz y arruinaría la
+  // detección de cualquier aviso en inglés.
+  function looksLikeJobList(text) {
+    const low = (text || '').toLowerCase();
+    const marcas = ['publicado hace', 'evaluando solicitudes', 'postulación sencilla',
+                    'postulacion sencilla', 'solicitud sencilla', 'promocionado'];
+    let total = 0;
+    for (let i = 0; i < marcas.length; i++) {
+      let desde = 0;
+      let pos = low.indexOf(marcas[i], desde);
+      while (pos !== -1) {
+        total++;
+        if (total >= 3) return true;
+        desde = pos + marcas[i].length;
+        pos = low.indexOf(marcas[i], desde);
+      }
+    }
+    return false;
+  }
+
+  // Texto del aviso en el panel de detalle (columna derecha).
+  //
+  // v0.5.8 — MEDIDO EN CAMPO, no supuesto. El panel de la UI 2026 no tiene
+  // `#job-details` ni `.jobs-description` (verificado: `chars_contenedor: 0`), y
+  // el texto que se puede sacar de él es INSERVIBLE para detectar idioma:
+  //
+  //   panel de una vacante EN inglés → "Ssr. Learning & Development Analyst
+  //   Louis Dreyfus Company • Rosario, Santa Fe, Argentina Guardar Solicitar …
+  //   Compartido hace 3 semanas · Más de 100 personas han hecho clic en
+  //   «Solicitar» Respuestas gestionadas fuera de…"
+  //
+  // Es chrome en ESPAÑOL describiendo un aviso en INGLÉS: el detector lo llama
+  // 'es' (7 hits ES, 0 EN). El panel mezcla los dos idiomas por construcción, así
+  // que cualquier heurística sobre él es una moneda al aire sesgada al idioma de
+  // la interfaz. Y el nodo que se obtenía variaba entre páginas
+  // (`DIV._12fe6c88` vs `DIV._54e8c074…`), o sea que además era inestable.
+  //
+  // En cambio el endpoint público SÍ devuelve el cuerpo limpio y correcto —
+  // medido en las dos vacantes: 514 palabras de prosa española → 'es' (26 hits
+  // ES, 0 EN); 296 palabras de prosa inglesa → 'en' (18 hits EN, 0 ES). Y ahora
+  // hay `jobId` para las 25 tarjetas, así que esa vía cubre toda la lista.
+  //
+  // Decisión: sin contenedor explícito, se devuelve ''. La resolución por
+  // descripción queda a cargo del fetch (Capa 4), que es la fuente confiable.
+  // La heurística sobre el panel se elimina en vez de seguir parcheándola.
   function getDetailDescription(root) {
     if (!root || !root.querySelector) return '';
-    let detailRoot = root.querySelector('#job-details') ||
-                     root.querySelector('.jobs-description') ||
-                     root.querySelector('.jobs-description__content') ||
-                     root.querySelector('.jobs-details__main-content') ||
-                     root.querySelector('.jobs-details') ||
-                     root.querySelector('.jobs-search-two-pane__job-details') ||
-                     root.querySelector('main');
-    return descriptionFromDetail(detailRoot || root);
+    const explicito = root.querySelector('#job-details') ||
+                      root.querySelector('.jobs-description__content') ||
+                      root.querySelector('.jobs-description') ||
+                      root.querySelector('.jobs-box__html-content') ||
+                      root.querySelector('.jobs-details__main-content');
+    if (!explicito) return '';
+    const texto = descriptionFromDetail(explicito);
+    // Mismo criterio de confianza que para el endpoint público: si no parece el
+    // cuerpo de un aviso, mejor '' y que la vacante quede en '??'.
+    if (!isTrustworthyDescription(texto)) return '';
+    return texto;
   }
 
   // Detecta idioma de un texto (usa el detector puro).
@@ -877,18 +964,86 @@
     return out;
   }
 
+  // Chrome de la página pública de LinkedIn. Está en el idioma de la INTERFAZ
+  // del visitante (español, en este caso), así que si se cuela en el texto que
+  // va al detector, cualquier aviso en inglés termina clasificado como español.
+  const GUEST_CHROME = [
+    'iniciar sesión', 'inicia sesión', 'regístrate', 'crear cuenta', 'crear una cuenta',
+    'empleos similares', 'ver más empleos', 'aviso de privacidad', 'política de cookies',
+    'condiciones de uso', 'accesibilidad', 'sign in', 'join now', 'similar jobs',
+    'privacy policy', 'cookie policy', 'user agreement',
+  ];
+  function looksLikeGuestChrome(text) {
+    const low = (text || '').toLowerCase();
+    let hits = 0;
+    for (let i = 0; i < GUEST_CHROME.length; i++) {
+      if (low.indexOf(GUEST_CHROME[i]) !== -1) hits++;
+      if (hits >= 2) return true;
+    }
+    return false;
+  }
+
+  // Bloque de metadatos del aviso ("Seniority level / Employment type / Job
+  // function / Industries"). En la página pública viene en INGLÉS aunque el
+  // aviso esté en español, así que si se captura ese bloque en vez del cuerpo,
+  // un aviso en español se clasifica 'en'. Es el error más grave posible: en
+  // modo ocultar, esconde vacantes válidas.
+  const CRITERIA_MARKERS = [
+    'seniority level', 'employment type', 'job function', 'industries',
+    'referrals increase', 'get notified about new', 'similar jobs',
+    'nivel de antigüedad', 'tipo de empleo', 'función laboral', 'sectores',
+  ];
+  function looksLikeCriteriaBlock(text) {
+    const low = (text || '').toLowerCase();
+    let hits = 0;
+    for (let i = 0; i < CRITERIA_MARKERS.length; i++) {
+      if (low.indexOf(CRITERIA_MARKERS[i]) !== -1) hits++;
+      if (hits >= 2) return true;
+    }
+    return false;
+  }
+
+  // ¿Este texto es realmente el cuerpo de un aviso, y por lo tanto evidencia
+  // confiable de su idioma? (v0.5.7)
+  // El detector es bueno con prosa y malo con etiquetas de interfaz: 20 palabras
+  // de metadatos alcanzan para decidir un idioma equivocado, y ese resultado
+  // queda cacheado. Un aviso real tiene cientos de palabras. Ante la duda se
+  // devuelve '' y la vacante queda en '??' (fail-open).
+  function isTrustworthyDescription(text) {
+    const t = cleanText(text || '');
+    if (t.length < 180) return false;
+    const tokens = t.split(/\s+/).length;
+    if (tokens < 30) return false;
+    if (t.length > 30000) return false;      // se capturó media página
+    if (looksLikeGuestChrome(t)) return false;
+    if (looksLikeJobList(t)) return false;
+    // Bloque de metadatos suelto: corto y lleno de etiquetas. Si además es
+    // largo, probablemente traiga el cuerpo del aviso y sí sirve.
+    if (looksLikeCriteriaBlock(t) && tokens < 150) return false;
+    return true;
+  }
+
+  // Extrae la descripción de la respuesta del endpoint público de la vacante.
+  // v0.5.7: endurecido. Antes había patrones abiertos del tipo
+  //   /<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/
+  // que capturaban desde ese punto hasta el FINAL del documento: menú, footer,
+  // "Empleos similares", avisos legales… todo en español. Con eso, un aviso en
+  // inglés se clasificaba 'es' y el resultado quedaba cacheado.
+  // Criterio nuevo: ante la duda, devolver '' y dejar la vacante en '??'.
+  // Un '??' honesto es mejor que una etiqueta equivocada y persistente.
   function extractDescriptionFromHTML(htmlString) {
     if (!htmlString || typeof htmlString !== 'string') return '';
-    const match = htmlString.match(/<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/article>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/main>/i) ||
-                htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
-                htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    const match =
+      // Contenedor real de la descripción en la página pública (el habitual).
+      htmlString.match(/<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      htmlString.match(/<section[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/section>/i) ||
+      // Variantes del DOM autenticado, todas ACOTADAS por su cierre.
+      htmlString.match(/<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      htmlString.match(/<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+      htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i);
     if (!match) return '';
     const cleaned = cleanText(match[1].replace(/<[^>]+>/g, ' '));
-    if (cleaned.length < 50) return '';
+    if (!isTrustworthyDescription(cleaned)) return '';
     return cleaned;
   }
 
@@ -981,6 +1136,10 @@
     extractPageSuccessFixture: extractPageSuccessFixture,
     descriptionFromDetail: descriptionFromDetail,
     extractDescriptionFromHTML: extractDescriptionFromHTML,
+    looksLikeGuestChrome: looksLikeGuestChrome,
+    looksLikeJobList: looksLikeJobList,
+    looksLikeCriteriaBlock: looksLikeCriteriaBlock,
+    isTrustworthyDescription: isTrustworthyDescription,
     getActiveJobId: getActiveJobId,
     getDetailTitle: getDetailTitle,
     getDetailCompany: getDetailCompany,
@@ -1071,11 +1230,19 @@
       // re-etiquetado: al resolverse la vacante, el hash cambia y processCard
       // deja de reusar el '??' anterior.
       h += '|CACHE:' + FETCH_CACHE[ck];
-    } else {
-      const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-      const desc = panelDescriptionFor(card, d, document);
-      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     }
+    // v0.5.7 — BUG CORREGIDO: esto estaba en un `else` del bloque anterior, así
+    // que una vez que la caché tenía un valor (por ejemplo uno EQUIVOCADO puesto
+    // por el fetch en segundo plano), el hash ya no miraba el panel de detalle.
+    // Consecuencia reportada en campo: abrías la vacante, el panel mostraba el
+    // aviso en inglés, y la tarjeta seguía marcada ES para siempre. El hash no
+    // cambiaba, así que processCard reusaba la etiqueta anterior y tagCard nunca
+    // corría. Ahora se suman las dos señales: la descripción del panel es la
+    // evidencia más fuerte (es el texto que el usuario está viendo) y siempre
+    // debe poder corregir a la caché.
+    const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+    const desc = panelDescriptionFor(card, d, document);
+    if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     return h;
   }
 
@@ -1131,16 +1298,25 @@
   // resuelve por la capa de roles del título cuando este SÍ se lee. Pendiente:
   // diagnosticar titleFromCard con ?llfdebug=1 y fijar el selector real.
   // ── Opción B (v0.4.0): Caché en memoria + Fetcher Asíncrono Silencioso ─────
-  const FETCH_CACHE = {}; // jobId -> lang
+  const FETCH_CACHE = {}; // clave -> lang
   const FETCH_PENDING = {};
+  const FETCH_TRIED = {}; // jobId -> intentos (tope duro, ver abajo)
   let activeFetches = 0;
   const MAX_CONCURRENT = 3;
+  // v0.5.6: tope de intentos por vacante. Sin esto, si el endpoint público está
+  // caído o devuelve 429, cada pase del MutationObserver (uno por lote de
+  // scroll) volvía a pedir la misma vacante: una tormenta de peticiones desde
+  // la cuenta del usuario. Con el jobId de vuelta en la UI 2026 este camino se
+  // ejecuta de verdad, así que el tope deja de ser teórico.
+  const MAX_TRIES = 2;
 
   function fetchJobDetail(jobId, card, doc) {
     if (!jobId || FETCH_CACHE[jobId] || FETCH_PENDING[jobId]) return;
+    if ((FETCH_TRIED[jobId] || 0) >= MAX_TRIES) return;
     if (activeFetches >= MAX_CONCURRENT) return;
 
     FETCH_PENDING[jobId] = true;
+    FETCH_TRIED[jobId] = (FETCH_TRIED[jobId] || 0) + 1;
     activeFetches++;
 
     const url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + jobId;
@@ -1154,10 +1330,28 @@
           if (desc && desc.trim()) {
             const lang = detector.detectLanguage(desc).lang;
             if (lang === 'es' || lang === 'en') {
+              // La caché se escribe SIEMPRE: está indexada por jobId, así que es
+              // correcta pase lo que pase con el nodo.
               FETCH_CACHE[jobId] = lang;
-              tagCard(card, function () { return desc; }, doc, { force: true });
-              const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-              applyAction(card, { lang: lang }, document);
+
+              // v0.5.8 — GUARDA CONTRA NODOS RECICLADOS. `card` se capturó
+              // cuando se lanzó la petición. LinkedIn reutiliza los nodos del
+              // DOM al re-renderizar y scrollear, así que cuando la respuesta
+              // llega ese nodo puede estar mostrando OTRA vacante. Etiquetarlo
+              // le pega el idioma de una vacante al aviso de otra.
+              // Explica la paradoja medida en campo: la descripción de
+              // "Especialista en Marketing - Prospección B2B" es 100% español
+              // (26 hits ES, 0 EN) y sin embargo la tarjeta salió EN.
+              // Si el nodo ya no corresponde, no se toca: la tarjeta correcta
+              // toma el valor de la caché en el próximo pase del observer.
+              const idAhora = selectors.extractFromCard(card).jobId;
+              if (idAhora && idAhora !== jobId) {
+                _dbg('  → fetch de', jobId, 'descartado: el nodo ahora muestra', idAhora);
+              } else {
+                tagCard(card, function () { return desc; }, doc, { force: true });
+                const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+                applyAction(card, { lang: lang }, document);
+              }
             }
           }
         })
@@ -1216,8 +1410,21 @@
       return data;
     }
 
-    // 3. Capa de detección por título + empresa + modalidad
-    const detInput = (data.title || '') + ' ' + (data.company || '');
+    // 3. Capa de detección por TÍTULO + modalidad
+    // v0.5.6: el nombre de la empresa NO es evidencia del idioma del aviso.
+    // "Telefónica" no lo vuelve español ni "Globant" inglés. Peor: inyecta
+    // tildes y stopwords ES que activan la Regla de Oro de Diacríticos del
+    // detector (accentHits suma a weightedEs y gana por proporción ANTES de que
+    // se consulte la capa de roles). Medido con tests/_tmp_bias: 130 de 288
+    // combinaciones "título en inglés + empresa" volteaban a 'es' solo por eso,
+    // y en campo dejó 19 de 19 tarjetas del camino por título etiquetadas ES.
+    // La empresa se sigue extrayendo: sirve para la clave de caché, el hash y
+    // los fixtures del reporter, pero no para decidir el idioma.
+    // Único caso en que se agrega: cuando el título no se pudo leer (UI legacy,
+    // donde a veces el texto del título no era accesible y la empresa era la
+    // única señal disponible).
+    const titleText = (data.title || '').trim();
+    const detInput = (titleText.length >= 3) ? titleText : (titleText + ' ' + (data.company || ''));
     const detRes = detector.detectLanguage(detInput, { modality: data.modality });
     data.lang = detRes.lang;
     data.isAmbiguous = detRes.isAmbiguous || false;
@@ -1565,7 +1772,14 @@
         else if (reporterBtn.parentNode) reporterBtn.parentNode.removeChild(reporterBtn);
       }
     }
-    if (card.setAttribute) card.setAttribute('data-llf-lang', data.lang);
+    if (card.setAttribute) {
+      card.setAttribute('data-llf-lang', data.lang);
+      // v0.5.6: exponer DE DÓNDE salió el idioma. Sin esto no hay forma de
+      // saber en campo si una tarjeta se clasificó por el título (señal débil)
+      // o por la descripción real del aviso (señal fuerte), y por lo tanto no
+      // se puede validar una mejora de precisión: solo se ve el resultado.
+      card.setAttribute('data-llf-src', data.langSource || 'title');
+    }
     return data;
   }
 
@@ -1682,6 +1896,102 @@
     if (unkNode) unkNode.textContent = stats.unknownCount;
   }
 
+  // ── Canario de salud (v0.5.6) ──────────────────────────────────────────────
+  // Motivación empírica: en un mismo día hubo DOS fallas silenciosas seguidas.
+  //   1. v0.5.3 dejó de etiquetar la lista (badges anclados en un wrapper 0x0).
+  //   2. v0.5.4 etiquetó 19 de 19 tarjetas como ES por contaminar el input del
+  //      detector con el nombre de la empresa.
+  // Ninguna avisó nada: se detectaron porque el usuario las vio. Este canario
+  // convierte esas fallas en un warning en consola, una sola vez por sesión y
+  // por problema (nunca en bucle), y queda disponible como API para el popup.
+  const HEALTH_WARNED = {};
+  let FIRST_RUN_AT = 0;
+
+  function health(root) {
+    const doc = root || (typeof window !== 'undefined' ? window.document : null);
+    const out = { issues: [], cards: 0, badges: 0, withJobId: 0, byDescription: 0, unknowns: 0 };
+    if (!doc || !doc.querySelectorAll) return out;
+
+    const cards = getDomCards(doc);
+    out.cards = cards.length;
+    out.badges = doc.querySelectorAll('.llf-badge').length;
+
+    let misplaced = 0;
+    let measurable = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i];
+      if (selectors.extractFromCard(c).jobId) out.withJobId++;
+      const src = c.getAttribute && c.getAttribute('data-llf-src');
+      if (src === 'description' || src === 'async-fetch' || src === 'panel-cache') out.byDescription++;
+      if (c.getAttribute && c.getAttribute('data-llf-lang') === 'unknown') out.unknowns++;
+
+      // Geometría: solo se evalúa si hay layout real (en jsdom todo es 0 y en
+      // una lista virtualizada las tarjetas fuera de vista también).
+      if (i < 4 && hasLayoutBox(c) && c.getBoundingClientRect) {
+        const badge = c.querySelector && c.querySelector('.llf-badge');
+        if (badge && badge.getBoundingClientRect) {
+          const cr = c.getBoundingClientRect();
+          const br = badge.getBoundingClientRect();
+          if (br.width > 0 || br.height > 0) {
+            measurable++;
+            const dentro = br.left >= cr.left - 4 && br.left <= cr.right + 4 &&
+                           br.top >= cr.top - 4 && br.top <= cr.bottom + 4;
+            if (!dentro) misplaced++;
+          }
+        }
+      }
+    }
+
+    const onJobs = (typeof window !== 'undefined' && window.location &&
+                    String(window.location.pathname || '').indexOf('/jobs/') !== -1);
+    const elapsed = FIRST_RUN_AT ? (Date.now() - FIRST_RUN_AT) : 0;
+
+    if (onJobs && cards.length === 0) {
+      out.issues.push({
+        code: 'no-cards',
+        msg: 'CERO tarjetas detectadas en una página de empleos. LinkedIn probablemente cambió el DOM. ' +
+             'Diagnóstico: pegar tools/diagnose_linkedin_dom.js y correr __LJF_DIAG.ariaLabels().',
+      });
+    } else if (cards.length > 0) {
+      if (out.badges === 0) {
+        out.issues.push({ code: 'no-badges', msg: cards.length + ' tarjetas detectadas pero NINGÚN badge inyectado.' });
+      }
+      if (measurable > 0 && misplaced === measurable) {
+        out.issues.push({
+          code: 'badges-misplaced',
+          msg: 'los badges se están dibujando FUERA de su tarjeta (falta ancla con caja de layout). ' +
+               'Fue el bug de v0.5.3: revisar getDomCards/.llf-badge-host.',
+        });
+      }
+      if (cards.length >= 5 && out.withJobId === 0) {
+        out.issues.push({
+          code: 'no-jobids',
+          msg: 'ninguna tarjeta expone jobId: la Capa 4 (descripción) queda inactiva y van a sobrar «??». ' +
+               'Revisar el atributo componentkey en jobIdFromCard(); verificar con __LJF_DIAG.hunt().',
+        });
+      }
+      // Capa 4 en silencio: hay ids y dudosas, pero nada se resolvió por
+      // descripción pasados 15 s. Puede ser el endpoint público caído.
+      if (out.withJobId > 0 && out.unknowns >= 4 && out.byDescription === 0 && elapsed > 15000) {
+        out.issues.push({
+          code: 'layer4-idle',
+          msg: out.unknowns + ' tarjetas en «??» y ninguna resuelta por descripción tras 15 s. ' +
+               'Puede estar bloqueado el endpoint público (ver FETCH_TRIED).',
+        });
+      }
+    }
+
+    for (let k = 0; k < out.issues.length; k++) {
+      const it = out.issues[k];
+      if (HEALTH_WARNED[it.code]) continue;
+      HEALTH_WARNED[it.code] = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[LangJobs] ⚠️ ' + it.code + ': ' + it.msg);
+      }
+    }
+    return out;
+  }
+
   const LAST_ERRORS = [];
   function processAll(root, opts) {
     opts = opts || {};
@@ -1701,6 +2011,10 @@
     });
     const document = root.ownerDocument || (typeof window !== 'undefined' ? window.document : root);
     renderBetaSuccessBanner(document, opts);
+    if (!FIRST_RUN_AT) FIRST_RUN_AT = Date.now();
+    if (opts.health !== false) {
+      try { health(root); } catch (e) { /* el canario nunca debe romper el etiquetado */ }
+    }
     return res;
   }
 
@@ -1752,13 +2066,14 @@
     // v0.5.4: en la UI 2026 las tarjetas no tienen data-job-id; se limpian por
     // las marcas propias (data-llf-*) y por la clase host del badge.
     const cards = document.querySelectorAll(
-      '[data-llf-lang],[data-llf-hash],.' + CLS.host + ',[data-job-id]'
+      '[data-llf-lang],[data-llf-hash],[data-llf-src],.' + CLS.host + ',[data-job-id]'
     );
     Array.prototype.slice.call(cards).forEach(function (card) {
       if (!isJobCardContainer(card)) return;
       if (card.removeAttribute) {
         card.removeAttribute('data-llf-lang');
         card.removeAttribute('data-llf-hash');
+        card.removeAttribute('data-llf-src');
       }
       if (card.classList) card.classList.remove(CLS.hidden, CLS.dim, CLS.host);
       if (card.style && card.style.removeProperty) card.style.removeProperty('display');
@@ -1879,6 +2194,8 @@
   return {
     run: run,
     observe: observe,
+    FETCH_TRIED: FETCH_TRIED,
+    FETCH_CACHE: FETCH_CACHE,
     processAll: processAll,
     processCard: processCard,
     tagCard: tagCard,
@@ -1887,6 +2204,7 @@
     setConfig: setConfig,
     clearAll: clearAll,
     classify: classify,
+    health: health,
     getDomCards: getDomCards,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
@@ -1911,6 +2229,12 @@
     // Fail-open: las vacantes 'unknown' NUNCA se ocultan/atenuan.
     var CONFIG = { targetLang: 'es', mode: 'label' };
     if (LangJobsApp.setConfig) LangJobsApp.setConfig(CONFIG);
+    // Sella la versión en el DOM (ver la nota del bundler de la extensión).
+    try {
+      if (document.documentElement) {
+        document.documentElement.setAttribute('data-llf-version', '0.5.8');
+      }
+    } catch (e) {}
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
     if (LangJobsApp.observe) {
       LangJobsApp.observe(document, { debounceMs: 150, config: CONFIG });
@@ -1929,7 +2253,7 @@
             ? LangJobsApp.getDomCards(document)
             : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
-          lines.push('LangJobs DEBUG v0.5.5 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.5.8 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
