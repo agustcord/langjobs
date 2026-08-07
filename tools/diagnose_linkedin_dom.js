@@ -765,8 +765,12 @@
     internals(3, true);
     var int = api._lastInternals || { expandos: 0, expandoKeys: [], hallazgos: [] };
 
+    var vExt = document.documentElement.getAttribute('data-llf-version');
     var out = {
       version_diag: '2026-08-06',
+      // Si esto dice "(sin sello)" con una extensión activa, está corriendo un
+      // build anterior a v0.5.8: hay que recargar en brave://extensions.
+      version_extension: vExt || '(sin sello — build viejo o extensión inactiva)',
       url: location.href.slice(0, 160),
       idioma_ui: document.documentElement.getAttribute('lang') || '?',
       conteos: {

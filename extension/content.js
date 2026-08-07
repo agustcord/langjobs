@@ -2238,8 +2238,17 @@
       if (handle && handle.disconnect) handle.disconnect();
       if (typeof document === 'undefined') return;
       handle = root.LangJobsApp.observe(document, { debounceMs: 150 });
+      // Sella la versión en el DOM. El proyecto ya tuvo "regresiones fantasma"
+      // que en realidad eran builds viejos cacheados; con esto el diagnóstico
+      // (y el propio usuario) puede confirmar QUÉ versión está corriendo sin
+      // depender de la consola ni de la pantalla de extensiones.
+      try {
+        if (document.documentElement) {
+          document.documentElement.setAttribute('data-llf-version', '0.5.8');
+        }
+      } catch (e) {}
       if (typeof console !== 'undefined' && console.log) {
-        console.log('[LangJobs] observer activo (build v0.5.6).');
+        console.log('[LangJobs] observer activo (build v0.5.8).');
       }
     }
     function stopObserving() {

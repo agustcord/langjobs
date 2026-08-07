@@ -20,7 +20,7 @@ const modules = ['stopwords.js', 'detector.js', 'selectors.js', 'app.js'];
 // panel de debug (?llfdebug=1) para saber QUÉ versión corre realmente en el
 // navegador del usuario (las regresiones "fantasma" eran versiones viejas
 // cacheadas por raw.githubusercontent/Tampermonkey).
-const VERSION = '0.5.6';
+const VERSION = '0.5.8';
 
 const HEADER = `// ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
@@ -53,6 +53,12 @@ const FOOTER = `
     // Fail-open: las vacantes 'unknown' NUNCA se ocultan/atenuan.
     var CONFIG = { targetLang: 'es', mode: 'label' };
     if (LangJobsApp.setConfig) LangJobsApp.setConfig(CONFIG);
+    // Sella la versión en el DOM (ver la nota del bundler de la extensión).
+    try {
+      if (document.documentElement) {
+        document.documentElement.setAttribute('data-llf-version', '${VERSION}');
+      }
+    } catch (e) {}
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
     if (LangJobsApp.observe) {
       LangJobsApp.observe(document, { debounceMs: 150, config: CONFIG });
