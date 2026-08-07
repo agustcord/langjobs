@@ -73,7 +73,7 @@
     for (var pi = 0; pi < allP.length; pi++) {
       var ptxt = (allP[pi].textContent || '').replace(/\s+/g, ' ').trim();
       if (ptxt.length <= 3 || ptxt.length >= 120) continue;
-      if (UI_NOISE_RE.test(ptxt)) continue;
+      if (isUiNoise(ptxt)) continue;
       return ptxt;
     }
     return '';
@@ -81,13 +81,31 @@
 
   // Ruido de UI de LinkedIn (siempre en el idioma de la interfaz, NUNCA del
   // aviso): si se colara en el texto a clasificar sesgaría el detector.
-  const UI_NOISE_RE = new RegExp(
-    '^(promocionado|promoted|patrocinad|postulación sencilla|postulacion sencilla|solicitud sencilla|' +
-    'easy apply|guardar|guardado|save|saved|nuevo|new|verificado|verified|visto|viewed|' +
-    'ver empleo|ver oferta|contratación activa|contratacion activa|actively (reviewing|hiring)|' +
-    'revisado por|respuesta|se busca|hace \\d|\\d+ (día|dia|hora|semana|mes|day|hour|week|month)|' +
-    'candidat|solicitante|applicant|es|en|\\?\\?)$', 'i'
+  // Medido en campo (2026-08-06, 25 tarjetas): las tarjetas de la UI 2026
+  // traen 61 líneas de texto extra y TODAS son chrome de interfaz
+  // ("Publicado hace 5 meses", "Evaluando solicitudes de forma activa",
+  // "Solicitados", "·"). Están en el idioma de la INTERFAZ, así que colarlas al
+  // detector sesgaría todo hacia ES — justo el error que oculta vacantes
+  // válidas en modo hide. De ahí que este filtro sea deliberadamente amplio.
+  // Coincidencia EXACTA: separadores, el texto del propio badge y etiquetas de
+  // una sola palabra. Van aparte a propósito: como prefijo, "es"/"en" harían
+  // match con "Especialista" o "Encargado" y se perdería el título.
+  const UI_NOISE_EXACT_RE = new RegExp(
+    '^(·|•|-|—|\\||es|en|\\?\\?|nuevo|new|visto|viewed|guardar|guardado|save|saved|' +
+    'solicitados?|solicitantes?|applicants?|promocionado|promoted|respuesta)$', 'i'
   );
+  // Coincidencia por PREFIJO: frases de interfaz completas.
+  const UI_NOISE_PREFIX_RE = new RegExp(
+    '^(patrocinad|postulación sencilla|postulacion sencilla|solicitud sencilla|easy apply|' +
+    'verificado|verified|ver empleo|ver oferta|contratación activa|contratacion activa|' +
+    'actively (reviewing|hiring)|revisado por|se busca|publicad|posted|evaluando|reviewing|' +
+    'postulad|candidat|hace \\d|\\d+ (día|dia|hora|semana|mes|day|hour|week|month))', 'i'
+  );
+  function isUiNoise(t) {
+    const s = (t || '').trim();
+    if (!s) return true;
+    return UI_NOISE_EXACT_RE.test(s) || UI_NOISE_PREFIX_RE.test(s);
+  }
 
   // Una "línea" = texto de un elemento hoja visible de la tarjeta, en orden DOM.
   // Es la única forma de leer título/empresa en la UI 2026: las clases CSS están
@@ -134,7 +152,7 @@
     for (let j = idx + 1; j < lines.length; j++) {
       const t = lines[j];
       if (title && t === title) continue;
-      if (UI_NOISE_RE.test(t)) continue;
+      if (isUiNoise(t)) continue;
       if (looksLikeLocation(t)) return '';
       return t;
     }

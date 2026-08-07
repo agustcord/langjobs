@@ -432,6 +432,164 @@
     return uniq;
   }
 
+  // ── Cacería dirigida: buscar un jobId CONOCIDO en toda la página ──────────
+  // internals() buscó patrones a ciegas y no encontró nada a profundidad 6.
+  // Esto es distinto: la URL nos da el id de la vacante ABIERTA, así que
+  // buscamos ese string exacto y averiguamos DÓNDE vive. Cubre las 5 vías
+  // posibles, en orden de conveniencia para la extensión:
+  //   1. Texto del DOM (<code>/<script> con los modelos de Voyager) → legible
+  //      desde un content script en world AISLADO. Es la vía ideal.
+  //   2. Atributos de algún elemento.
+  //   3. Expandos de React (profundo, siguiendo memoizedProps/child/sibling).
+  //   4. Globals de window.
+  //   5. Nada → solo queda interceptar la respuesta de red.
+  function hunt(knownId) {
+    var known = String(knownId || (location.search.match(/currentJobId=(\d+)/) || [])[1] || '');
+    if (!known) {
+      console.warn('No hay currentJobId en la URL: abrí una vacante primero, o pasá el id: __LJF_DIAG.hunt("4442412166")');
+      return null;
+    }
+    console.log('%c Cacería del jobId ' + known + ' ', 'background:#0a66c2;color:#fff;font-weight:700');
+    var out = { jobId: known, via: [], detalle: {} };
+
+    // ── 1. Blobs de JSON embebidos en el DOM ──
+    var blobs = document.querySelectorAll('code, script[type="application/json"], script[type="application/ld+json"]');
+    var blobsConId = 0, blobsConJobPosting = 0, primerHit = null, muestraShape = '';
+    for (var i = 0; i < blobs.length; i++) {
+      var txt = '';
+      try { txt = blobs[i].textContent || ''; } catch (e) { continue; }
+      if (!txt || txt.length < 20) continue;
+      var tieneJP = txt.indexOf('jobPosting') !== -1;
+      if (tieneJP) blobsConJobPosting++;
+      if (txt.indexOf(known) !== -1) {
+        blobsConId++;
+        if (!primerHit) {
+          primerHit = { idx: i, tag: blobs[i].tagName, id: blobs[i].id || '', chars: txt.length };
+          // Reportar la FORMA (claves), no el contenido: puede haber datos personales.
+          var pos = txt.indexOf(known);
+          var win = txt.slice(Math.max(0, pos - 400), pos + 400);
+          var keys = {};
+          (win.match(/"([a-zA-Z_][a-zA-Z0-9_]{2,40})":/g) || []).forEach(function (k) {
+            keys[k.replace(/[":]/g, '')] = true;
+          });
+          muestraShape = Object.keys(keys).slice(0, 40).join(', ');
+          api._huntWindow = win; // crudo, para inspeccionar A MANO en la consola
+        }
+      }
+    }
+    out.detalle.blobs = {
+      total: blobs.length, con_jobPosting: blobsConJobPosting, con_el_id: blobsConId,
+      primer_hit: primerHit, claves_alrededor: muestraShape,
+    };
+    if (blobsConId > 0) out.via.push('dom-json-blob');
+
+    // ── 2. Atributos ──
+    var attrHit = null;
+    var all = document.querySelectorAll('*');
+    for (var j = 0; j < all.length && !attrHit; j++) {
+      var el = all[j];
+      var names;
+      try { names = el.getAttributeNames ? el.getAttributeNames() : []; } catch (e) { continue; }
+      for (var n = 0; n < names.length; n++) {
+        if (names[n] === 'class' || names[n] === 'style') continue;
+        var v = el.getAttribute(names[n]) || '';
+        if (v.indexOf(known) !== -1) { attrHit = { nodo: desc(el), atributo: names[n], valor: v.slice(0, 90) }; break; }
+      }
+    }
+    out.detalle.atributo = attrHit;
+    if (attrHit) out.via.push('atributo');
+
+    // ── 3. Expandos de React, profundo ──
+    var reactHit = null;
+    var seen = new Set();
+    var budget = 40000;
+    var queue = [];
+    var roots = document.querySelectorAll('div');
+    for (var r = 0; r < roots.length && queue.length < 400; r++) {
+      var keysR;
+      try { keysR = Object.keys(roots[r]); } catch (e) { continue; }
+      for (var kk = 0; kk < keysR.length; kk++) {
+        if (keysR[kk].indexOf('__react') === 0) {
+          queue.push({ v: roots[r][keysR[kk]], path: keysR[kk], d: 0 });
+        }
+      }
+    }
+    out.detalle.react_raices = queue.length;
+    while (queue.length && budget-- > 0 && !reactHit) {
+      var it = queue.shift();
+      var val = it.v;
+      if (val == null || it.d > 12) continue;
+      var t = typeof val;
+      if (t === 'string') {
+        if (val.indexOf(known) !== -1) reactHit = { path: it.path, valor: val.slice(0, 90) };
+        continue;
+      }
+      if (t === 'number') {
+        if (String(val).indexOf(known) !== -1) reactHit = { path: it.path, valor: String(val) };
+        continue;
+      }
+      if (t !== 'object' || val.nodeType) continue;
+      if (seen.has(val)) continue;
+      seen.add(val);
+      var ks;
+      try { ks = Object.keys(val); } catch (e) { continue; }
+      for (var m = 0; m < ks.length && m < 80; m++) {
+        var key = ks[m];
+        if (key === '_owner' || key === 'stateNode' || key === 'alternate' || key === '_debugOwner') continue;
+        // 'return' (fiber padre) sí se sigue, pero solo un nivel para no explotar.
+        if (key === 'return' && it.d > 1) continue;
+        var sub;
+        try { sub = val[key]; } catch (e) { continue; }
+        queue.push({ v: sub, path: it.path + '.' + key, d: it.d + 1 });
+      }
+    }
+    out.detalle.react = reactHit;
+    if (reactHit) out.via.push('react-expando');
+
+    // ── 4. Globals de window ──
+    var globalHit = null;
+    try {
+      var gk = Object.keys(window);
+      for (var g = 0; g < gk.length && !globalHit; g++) {
+        var name = gk[g];
+        if (!/^__|linkedin|voyager|artdeco|preload|apollo|redux|store/i.test(name)) continue;
+        var gv;
+        try { gv = window[name]; } catch (e) { continue; }
+        var s = '';
+        try { s = (typeof gv === 'string') ? gv : JSON.stringify(gv).slice(0, 400000); } catch (e) { continue; }
+        if (s && s.indexOf(known) !== -1) globalHit = { global: name, tipo: typeof gv };
+      }
+    } catch (e) {}
+    out.detalle.global = globalHit;
+    if (globalHit) out.via.push('window-global');
+
+    // ── Veredicto ──
+    function v(ok, msg) {
+      console.log('%c ' + (ok ? 'OK  ' : '—   ') + '%c ' + msg,
+        'background:' + (ok ? '#16a34a' : '#4b5563') + ';color:#fff;font-weight:700', '');
+    }
+    v(blobsConId > 0, 'JSON embebido en el DOM: ' + blobsConId + ' blob(s) con el id, ' +
+      blobsConJobPosting + ' con "jobPosting" (de ' + blobs.length + ' totales)');
+    v(!!attrHit, 'atributo con el id' + (attrHit ? ': ' + attrHit.atributo + ' en ' + attrHit.nodo : ''));
+    v(!!reactHit, 'expando de React con el id' + (reactHit ? ': ' + reactHit.path.slice(0, 80) : ''));
+    v(!!globalHit, 'global de window con el id' + (globalHit ? ': window.' + globalHit.global : ''));
+
+    if (muestraShape) {
+      console.log('%c Claves alrededor del id (¿hay description/title?) ', 'background:#111;color:#0f0');
+      console.log(muestraShape);
+      console.log('Para ver el texto crudo (puede tener datos personales, NO pegarlo a ciegas): __LJF_DIAG._huntWindow');
+    }
+    if (!out.via.length) {
+      console.log('%c Ninguna vía DOM/JS expone el id → solo queda interceptar la respuesta de red. ',
+        'background:#b45309;color:#fff;font-weight:700');
+    }
+
+    var json = JSON.stringify(out, null, 2);
+    console.log(json);
+    try { if (typeof copy === 'function') { copy(json); console.log('%c 📋 Copiado al portapapeles ', 'background:#16a34a;color:#fff;font-weight:700'); } } catch (e) {}
+    return out;
+  }
+
   function mark() {
     var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
     cards.forEach(function (c, i) {
@@ -530,7 +688,7 @@
   }
 
   var api = {
-    report: report,
+    report: report, hunt: hunt,
     run: run, trace: trace, ids: ids, ariaLabels: ariaLabels, mark: mark,
     lines: lines, internals: internals,
     getDomCards: getDomCards, cards: [],
@@ -538,6 +696,8 @@
   window.__LJF_DIAG = api;
   run();
   console.log('%c → Para el informe completo (y copiado al portapapeles):  __LJF_DIAG.report()',
+    'background:#111;color:#0f0;font-weight:700');
+  console.log('%c → Cacería del jobId de la vacante abierta (dice si se puede recuperar):  __LJF_DIAG.hunt()',
     'background:#111;color:#0f0;font-weight:700');
   console.log('Otros: .lines() | .internals() | .trace("texto del título") | .ids() | .ariaLabels() | .mark()');
 })();

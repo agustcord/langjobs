@@ -385,6 +385,57 @@ const other = SEL.extractFromCard(ambCard);
 check('la clave de caché incluye la empresa (no colisiona por título suelto)',
   other.company === AMB.company, JSON.stringify(other.company));
 
+// ── Escenario 5: ruido de UI REAL medido en campo (2026-08-06) ─────────────
+// __LJF_DIAG.lines() midió 61 líneas de texto extra en 25 tarjetas y todas eran
+// chrome de interfaz. Está en el idioma de la INTERFAZ, así que si se cuela al
+// detector sesga todo hacia ES (el error que oculta vacantes válidas en modo
+// hide). Estas son las cadenas exactas observadas.
+console.log('\n═══ Ruido de UI real: no debe contaminar título ni empresa ═══');
+const NOISE_LINES = ['·', 'Publicado hace 5 meses', 'Evaluando solicitudes de forma activa', 'Solicitados'];
+const s5 = buildDom2026();
+global.window = s5.dom.window;
+global.document = s5.dom.window.document;
+
+function buildNoisyCard(doc, list, title, company, noiseFirst) {
+  const w = doc.createElement('div');
+  w.setAttribute('style', 'display:contents');
+  const card = doc.createElement('div');
+  card.setAttribute('data-test-card', 'noisy');
+  w.appendChild(card);
+  const inner = doc.createElement('div');
+  card.appendChild(inner);
+  const push = function (t) { const p = doc.createElement('p'); p.textContent = t; inner.appendChild(p); };
+  push(title);
+  // El caso peligroso: un separador ANTES de la línea de la empresa.
+  if (noiseFirst) push('·');
+  push(company);
+  push('Rosario, Santa Fe (Híbrido)');
+  NOISE_LINES.forEach(push);
+  const btn = doc.createElement('button');
+  btn.setAttribute('aria-label', 'Descartar empleo «' + title + '»');
+  inner.appendChild(btn);
+  list.appendChild(w);
+  return card;
+}
+
+const noisy = buildNoisyCard(s5.doc, s5.list, 'Business Analyst - Semi senior', 'Grupo Rosario', true);
+const noisyData = SEL.extractFromCard(noisy);
+check('el título sobrevive al ruido de UI',
+  noisyData.title === 'Business Analyst - Semi senior', JSON.stringify(noisyData.title));
+check('la empresa NO es un separador ni una frase de interfaz',
+  noisyData.company === 'Grupo Rosario', JSON.stringify(noisyData.company));
+check('ninguna cadena de ruido termina en título o empresa',
+  NOISE_LINES.indexOf(noisyData.title) === -1 && NOISE_LINES.indexOf(noisyData.company) === -1);
+
+// Regresión del filtro: "es"/"en" solo deben filtrarse como línea EXACTA.
+// Como prefijo harían match con "Especialista" / "Encargado" y se perdería el título.
+const esCard = buildNoisyCard(s5.doc, s5.list, 'Especialista en MKT Digital', 'Encargados SA', false);
+const esData = SEL.extractFromCard(esCard);
+check('un título que EMPIEZA con "es" no se filtra como ruido',
+  esData.title === 'Especialista en MKT Digital', JSON.stringify(esData.title));
+check('una empresa que EMPIEZA con "en" no se filtra como ruido',
+  esData.company === 'Encargados SA', JSON.stringify(esData.company));
+
 console.log('\n────────────────────────────────────────');
 console.log('  ' + pass + ' ok, ' + fail + ' fallo(s)');
 console.log('────────────────────────────────────────\n');
