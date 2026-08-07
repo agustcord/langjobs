@@ -459,17 +459,41 @@
       // v0.5.4: las tarjetas de la UI 2026 NO tienen data-job-id, así que el
       // ancla del badge se marca explícitamente con esta clase. Sin ella el
       // badge (position:absolute) se ancla a un ancestro lejano y no se ve.
-      '.' + CLS.host + '{position:relative !important;}\n' +
+      //
+      // v0.5.11 — `isolation:isolate` es el arreglo del badge que se dibujaba
+      // ENCIMA del formulario de "Solicitud sencilla". Causa medida: la tarjeta
+      // tenía `position:relative` pero `z-index:auto`, así que NO creaba contexto
+      // de apilado propio; el `z-index` altísimo del badge competía en el
+      // contexto raíz y le ganaba al modal de LinkedIn (que ronda 9999). Con
+      // isolation la tarjeta crea su propio contexto y el badge queda encerrado
+      // ahí: sigue por encima del contenido de SU tarjeta y por debajo de
+      // cualquier overlay de LinkedIn.
+      //
+      // Se usa `isolation` y NO `z-index:0` a propósito: las dos crean contexto
+      // de apilado, pero z-index:0 además cambiaría el orden de pintado de la
+      // tarjeta respecto de sus hermanas (hoy es `auto`), y eso podría recortar
+      // un desplegable de LinkedIn que sobresalga de una tarjeta a la de al lado.
+      '.' + CLS.host + '{position:relative !important;isolation:isolate !important;}\n' +
       // v0.5.10: posición por DEFECTO = debajo del ✕, alineado al borde derecho
       // de la tarjeta. Hasta v0.5.9 era `top:8px;right:40px` (al lado del ✕, a
       // la misma altura), y el título largo de la vacante se lo comía. Cuando la
       // tarjeta tiene layout medible, positionBadge() refina estos valores
       // midiendo el botón real; estos números son el fallback (jsdom, tarjetas
       // sin ✕ de la UI legacy, tarjetas fuera de vista en la lista virtualizada).
-      '.llf-badge{position:absolute !important;top:44px !important;right:8px !important;z-index:2147483647;' +
+      // z-index 100 (v0.5.11): antes era 2147483647, el máximo. Con la tarjeta
+      // aislada alcanza y sobra para quedar sobre el contenido de la tarjeta, y
+      // es la segunda línea de defensa contra el bug del formulario: si por
+      // cualquier motivo el badge volviera a escapar de su contexto de apilado,
+      // 100 pierde contra cualquier modal de LinkedIn en vez de taparlo.
+      '.llf-badge{position:absolute !important;top:44px !important;right:8px !important;z-index:100;' +
       'display:inline-flex !important;align-items:center !important;gap:3px !important;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
       'line-height:1.4;pointer-events:none;}\n' +
+      // Con un diálogo modal abierto (p. ej. "Solicitud sencilla") los badges se
+      // apagan: no aportan nada sobre un formulario y así no pueden solaparlo.
+      // El sello vive en <html> (syncModalState), no en cada tarjeta, para que
+      // sea una sola escritura por pase.
+      '[data-llf-modal="1"] .llf-badge{display:none !important;}\n' +
       '.llf-reporter-btn{pointer-events:auto !important;cursor:pointer !important;display:inline-block;' +
       'opacity:0.85;font-size:10px;margin-left:2px;user-select:none;}\n' +
       '.llf-reporter-btn:hover{opacity:1.0;transform:scale(1.2);}\n' +
@@ -549,6 +573,60 @@
     } catch (e) {
       return false; // la posición nunca puede romper el etiquetado
     }
+  }
+
+  // ── Guarda contra formularios y diálogos de LinkedIn (v0.5.11) ─────────────
+  // Segunda línea de defensa del bug reportado en campo: al abrir "Solicitud
+  // sencilla" los badges de las tarjetas de atrás aparecían SOBRE el formulario.
+  // El arreglo de fondo es `isolation:isolate` en la tarjeta (ver ensureStyles),
+  // pero mientras haya un diálogo modal abierto los badges tampoco tienen nada
+  // que aportar: se apagan por CSS y se vuelven a mostrar al cerrarlo.
+  //
+  // Deliberadamente CONSERVADOR para no apagar los badges de por vida:
+  //   • solo cuenta `[role="dialog"][aria-modal="true"]` (el contrato ARIA de un
+  //     diálogo modal ACTIVO) y el modal de postulación de LinkedIn;
+  //   • descarta los que están ocultos (hidden / aria-hidden / display:none),
+  //     porque en una SPA es normal que quede el cascarón de un modal cerrado.
+  // El estado queda sellado en <html data-llf-modal="1"> para que se pueda ver
+  // de un vistazo POR QUÉ desaparecieron los badges (misma lógica que
+  // data-llf-version y data-llf-src: si no se ve el motivo, no se depura).
+  var MODAL_SEL = '[role="dialog"][aria-modal="true"], .jobs-easy-apply-modal, .artdeco-modal-overlay';
+
+  function isHiddenNode(el) {
+    if (!el) return true;
+    if (el.hasAttribute && el.hasAttribute('hidden')) return true;
+    if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+    try {
+      var doc = el.ownerDocument;
+      var win = doc && (doc.defaultView || doc.parentWindow);
+      if (win && win.getComputedStyle) {
+        var st = win.getComputedStyle(el);
+        if (st && (st.display === 'none' || st.visibility === 'hidden')) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function isModalOpen(doc) {
+    if (!doc || !doc.querySelectorAll) return false;
+    var nodes = doc.querySelectorAll(MODAL_SEL);
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isHiddenNode(nodes[i])) return true;
+    }
+    return false;
+  }
+
+  // Sella el estado en <html> y devuelve si hay un modal abierto.
+  function syncModalState(doc) {
+    var d = doc || (typeof document !== 'undefined' ? document : null);
+    var html = d && d.documentElement;
+    if (!html) return false;
+    var open = isModalOpen(d);
+    try {
+      if (open) html.setAttribute('data-llf-modal', '1');
+      else if (html.removeAttribute) html.removeAttribute('data-llf-modal');
+    } catch (e) {}
+    return open;
   }
 
   // ── Aplica la acción DOM según CONFIG (T1.8) ───────────────────────────────
@@ -928,6 +1006,9 @@
     if (!root || !root.querySelectorAll) return [];
     const list = getDomCards(root).filter(isJobCardContainer);
     LAST_ERRORS.length = 0;
+    // v0.5.11: un querySelectorAll por pase para saber si hay un formulario o
+    // diálogo modal abierto. Nunca puede romper el etiquetado.
+    try { syncModalState(root.ownerDocument || root); } catch (e) {}
     const res = list.map(function (card, i) {
       // BLINDAJE (v0.3.0): una tarjeta con forma inesperada (LinkedIn redeploy)
       // NO debe matar el loop entero — eso producía "solo la primera tarjeta
@@ -987,6 +1068,12 @@
     if (banner) {
       if (banner.remove) banner.remove();
       else if (banner.parentNode && banner.parentNode.removeChild) banner.parentNode.removeChild(banner);
+    }
+
+    // v0.5.11: al apagar el etiquetado no debe quedar el sello del modal, o el
+    // CSS seguiría ocultando badges cuando se vuelva a encender.
+    if (document.documentElement && document.documentElement.removeAttribute) {
+      document.documentElement.removeAttribute('data-llf-modal');
     }
 
     const badges = document.querySelectorAll('.llf-badge');
@@ -1140,6 +1227,8 @@
     health: health,
     getDomCards: getDomCards,
     positionBadge: positionBadge,
+    isModalOpen: isModalOpen,
+    syncModalState: syncModalState,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,

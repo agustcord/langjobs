@@ -773,6 +773,11 @@
       version_extension: vExt || '(sin sello — build viejo o extensión inactiva)',
       url: location.href.slice(0, 160),
       idioma_ui: document.documentElement.getAttribute('lang') || '?',
+      // v0.5.11: si esto dice 'SÍ', los badges están apagados A PROPÓSITO porque
+      // hay un formulario/diálogo modal abierto (antes se dibujaban encima de
+      // "Solicitud sencilla"). Si dice 'SÍ' sin ningún modal a la vista, quedó
+      // un cascarón de diálogo en el DOM: es la explicación de "no veo badges".
+      modal_abierto: document.documentElement.getAttribute('data-llf-modal') === '1' ? 'SÍ (badges apagados)' : 'no',
       conteos: {
         botones_dismiss: document.querySelectorAll(DISMISS_SEL).length,
         data_job_id: document.querySelectorAll('[data-job-id]').length,

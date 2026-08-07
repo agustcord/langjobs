@@ -949,6 +949,100 @@ console.log('\n═══ Posición del badge: debajo del ✕ ═══');
     css.indexOf('right:40px') === -1);
 })();
 
+// ── Escenario 15: formularios y diálogos modales (v0.5.11) ─────────────────
+// Bug de campo: al abrir "Solicitud sencilla" los badges de las tarjetas de
+// atrás se dibujaban ENCIMA del formulario. Causa: la tarjeta tenía
+// position:relative pero z-index:auto → no creaba contexto de apilado, y el
+// z-index máximo del badge le ganaba al modal en el contexto raíz.
+//
+// LÍMITE HONESTO DE ESTE HARNESS: jsdom no implementa contextos de apilado ni
+// pintado, así que el arreglo de fondo (isolation:isolate) NO se puede verificar
+// acá — solo se comprueba que la regla se emita. Lo que sí se verifica de verdad
+// es la segunda defensa: el sello data-llf-modal y, sobre todo, que un modal
+// CERRADO no apague los badges (ese sería un fallo peor que el original).
+console.log('\n═══ Formularios modales: el badge no puede taparlos ═══');
+(function escenario15() {
+  const s15 = buildDom2026();
+  global.window = s15.dom.window;
+  global.document = s15.dom.window.document;
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+
+  const css = s15.doc.getElementById('llf-styles').textContent || '';
+  check('la tarjeta crea contexto de apilado propio (isolation:isolate)',
+    css.indexOf('isolation:isolate') !== -1);
+  check('el badge ya no usa el z-index máximo (perdería contra cualquier modal)',
+    css.indexOf('2147483647') === -1 || css.indexOf('.llf-badge{position:absolute !important;top:44px !important;right:8px !important;z-index:100') !== -1);
+  check('existe la regla que apaga los badges con un modal abierto',
+    css.indexOf('[data-llf-modal="1"] .llf-badge') !== -1);
+
+  // (a) Sin modal → sin sello.
+  check('sin diálogos, <html> no queda sellado',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'),
+    JSON.stringify(s15.doc.documentElement.getAttribute('data-llf-modal')));
+
+  // (b) Modal de postulación abierto (contrato ARIA de diálogo modal activo).
+  const modal = s15.doc.createElement('div');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.textContent = 'Solicitar empleo en STIB Ingeniería de Aplicación';
+  s15.doc.body.appendChild(modal);
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+  check('con el formulario abierto se sella <html data-llf-modal="1">',
+    s15.doc.documentElement.getAttribute('data-llf-modal') === '1');
+  check('los badges siguen en el DOM (se apagan por CSS, no se destruyen)',
+    s15.doc.querySelectorAll('.llf-badge').length === JOBS.length,
+    'badges=' + s15.doc.querySelectorAll('.llf-badge').length);
+
+  // (c) Al cerrarlo, los badges vuelven.
+  modal.remove();
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+  check('al cerrar el formulario se quita el sello y los badges vuelven',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'));
+
+  // (d) EL CASO PELIGROSO: en una SPA queda el cascarón de un modal cerrado.
+  // Si lo contáramos, los badges quedarían apagados para siempre.
+  const cerrado = s15.doc.createElement('div');
+  cerrado.setAttribute('role', 'dialog');
+  cerrado.setAttribute('aria-modal', 'true');
+  cerrado.setAttribute('style', 'display:none');
+  s15.doc.body.appendChild(cerrado);
+  check('un diálogo con display:none NO cuenta como modal abierto',
+    APP.isModalOpen(s15.doc) === false);
+
+  const ariaOculto = s15.doc.createElement('div');
+  ariaOculto.setAttribute('role', 'dialog');
+  ariaOculto.setAttribute('aria-modal', 'true');
+  ariaOculto.setAttribute('aria-hidden', 'true');
+  s15.doc.body.appendChild(ariaOculto);
+  check('un diálogo con aria-hidden="true" tampoco cuenta',
+    APP.isModalOpen(s15.doc) === false);
+
+  const conHidden = s15.doc.createElement('div');
+  conHidden.setAttribute('role', 'dialog');
+  conHidden.setAttribute('aria-modal', 'true');
+  conHidden.setAttribute('hidden', '');
+  s15.doc.body.appendChild(conHidden);
+  check('un diálogo con el atributo hidden tampoco cuenta',
+    APP.isModalOpen(s15.doc) === false);
+
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+  check('con solo cascarones cerrados, <html> sigue sin sello (badges visibles)',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'));
+
+  // (e) Un <dialog> sin aria-modal (no modal) no debe apagar nada.
+  const noModal = s15.doc.createElement('div');
+  noModal.setAttribute('role', 'dialog');
+  s15.doc.body.appendChild(noModal);
+  check('un diálogo NO modal (sin aria-modal) no apaga los badges',
+    APP.isModalOpen(s15.doc) === false);
+
+  // (f) clearAll debe llevarse el sello, o al reactivar quedarían ocultos.
+  s15.doc.documentElement.setAttribute('data-llf-modal', '1');
+  APP.clearAll(s15.doc);
+  check('clearAll borra el sello del modal (si no, al reactivar no se verían)',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'));
+})();
+
 // ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
 // Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
 // endpoint público está caído o tira 429, cada pase del MutationObserver
