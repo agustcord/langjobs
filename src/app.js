@@ -23,10 +23,28 @@
   // Editable en el script generado (userscript/langjobs.user.js). En F2 pasa a
   // chrome.storage.local + popup. targetLang = idioma que se MANTIENE visible.
   // mode: 'label' (solo badge) | 'dim' (atenuar no deseados) | 'hide' (ocultar).
+  // ── Interruptor de DESARROLLO del Modo Beta / Reporter (v0.5.9) ────────────
+  // El botón ⚠️ de cada tarjeta y la barra flotante "Validar Página OK" son
+  // infraestructura de desarrollo, NO una función de usuario: sin
+  // `node tools/reporter_server.js` corriendo en la máquina del desarrollador
+  // no hacen nada útil (caen al portapapeles). Por eso dejaron de estar en el
+  // popup: quien quiera medir precisión en campo tiene que poner esta constante
+  // en true y RECONSTRUIR los dos bundles:
+  //
+  //     BETA_REPORTING = true
+  //     node tools/build_extension.js
+  //     node tools/build_userscript.js
+  //
+  // Mantenerla en false es lo que garantiza que el build publicable no muestre
+  // botones de desarrollo ni intente hablar con localhost. El bootstrap de la
+  // extensión ya NO lee `betaReportingEnabled` de chrome.storage, así que este
+  // archivo es el único lugar donde se decide.
+  const BETA_REPORTING = false;
+
   const CONFIG = {
     targetLang: 'es',
     mode: 'label', // Versión V1 MVP: Etiquetado Visual Exclusivo (90-95%+ valor entregado)
-    betaReportingEnabled: false,
+    betaReportingEnabled: BETA_REPORTING,
   };
 
   const BADGE = {
@@ -870,6 +888,9 @@
     if (partial && typeof partial === 'object') {
       if (partial.targetLang) CONFIG.targetLang = partial.targetLang;
       if (partial.mode) CONFIG.mode = partial.mode;
+      // betaReportingEnabled sigue siendo escribible por API para los tests y
+      // para la consola del desarrollador, pero NINGÚN bootstrap se lo pasa:
+      // el interruptor real es la constante BETA_REPORTING de este archivo.
       if (typeof partial.betaReportingEnabled !== 'undefined') CONFIG.betaReportingEnabled = !!partial.betaReportingEnabled;
     }
     // Reprocesar forzado para aplicar el nuevo modo (T1.9: con getDescription

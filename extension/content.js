@@ -1166,10 +1166,28 @@
   // Editable en el script generado (userscript/langjobs.user.js). En F2 pasa a
   // chrome.storage.local + popup. targetLang = idioma que se MANTIENE visible.
   // mode: 'label' (solo badge) | 'dim' (atenuar no deseados) | 'hide' (ocultar).
+  // ── Interruptor de DESARROLLO del Modo Beta / Reporter (v0.5.9) ────────────
+  // El botón ⚠️ de cada tarjeta y la barra flotante "Validar Página OK" son
+  // infraestructura de desarrollo, NO una función de usuario: sin
+  // `node tools/reporter_server.js` corriendo en la máquina del desarrollador
+  // no hacen nada útil (caen al portapapeles). Por eso dejaron de estar en el
+  // popup: quien quiera medir precisión en campo tiene que poner esta constante
+  // en true y RECONSTRUIR los dos bundles:
+  //
+  //     BETA_REPORTING = true
+  //     node tools/build_extension.js
+  //     node tools/build_userscript.js
+  //
+  // Mantenerla en false es lo que garantiza que el build publicable no muestre
+  // botones de desarrollo ni intente hablar con localhost. El bootstrap de la
+  // extensión ya NO lee `betaReportingEnabled` de chrome.storage, así que este
+  // archivo es el único lugar donde se decide.
+  const BETA_REPORTING = false;
+
   const CONFIG = {
     targetLang: 'es',
     mode: 'label', // Versión V1 MVP: Etiquetado Visual Exclusivo (90-95%+ valor entregado)
-    betaReportingEnabled: false,
+    betaReportingEnabled: BETA_REPORTING,
   };
 
   const BADGE = {
@@ -2013,6 +2031,9 @@
     if (partial && typeof partial === 'object') {
       if (partial.targetLang) CONFIG.targetLang = partial.targetLang;
       if (partial.mode) CONFIG.mode = partial.mode;
+      // betaReportingEnabled sigue siendo escribible por API para los tests y
+      // para la consola del desarrollador, pero NINGÚN bootstrap se lo pasa:
+      // el interruptor real es la constante BETA_REPORTING de este archivo.
       if (typeof partial.betaReportingEnabled !== 'undefined') CONFIG.betaReportingEnabled = !!partial.betaReportingEnabled;
     }
     // Reprocesar forzado para aplicar el nuevo modo (T1.9: con getDescription
@@ -2224,12 +2245,16 @@
   // Arranca el observer con la config de chrome.storage.local (o defaults).
   // Prepara T2.5: reacciona en vivo a cambios de config sin recargar la página.
   (function bootstrap() {
-    var DEFAULTS = { enabled: true, targetLang: 'es', mode: 'label', betaReportingEnabled: false };
+    // v0.5.9: 'betaReportingEnabled' YA NO se lee de storage ni se expone en el
+    // popup. El Modo Beta / Reporter es infraestructura de desarrollo y su único
+    // interruptor es la constante BETA_REPORTING de src/app.js (hay que
+    // reconstruir los bundles para cambiarlo). Así el build publicable no puede
+    // quedar con el botón ⚠️ activado por un valor viejo de chrome.storage.
+    var DEFAULTS = { enabled: true, targetLang: 'es', mode: 'label' };
     var state = {
       enabled: DEFAULTS.enabled,
       targetLang: DEFAULTS.targetLang,
       mode: DEFAULTS.mode,
-      betaReportingEnabled: DEFAULTS.betaReportingEnabled,
     };
     var handle = null;
 
@@ -2244,11 +2269,11 @@
       // depender de la consola ni de la pantalla de extensiones.
       try {
         if (document.documentElement) {
-          document.documentElement.setAttribute('data-llf-version', '0.5.8');
+          document.documentElement.setAttribute('data-llf-version', '0.5.9');
         }
       } catch (e) {}
       if (typeof console !== 'undefined' && console.log) {
-        console.log('[LangJobs] observer activo (build v0.5.8).');
+        console.log('[LangJobs] observer activo (build v0.5.9).');
       }
     }
     function stopObserving() {
@@ -2271,18 +2296,24 @@
       if (typeof partial.enabled !== 'undefined') state.enabled = !!partial.enabled;
       if (partial.targetLang) state.targetLang = partial.targetLang;
       if (partial.mode) state.mode = partial.mode;
-      if (typeof partial.betaReportingEnabled !== 'undefined') state.betaReportingEnabled = !!partial.betaReportingEnabled;
       if (root.LangJobsApp && root.LangJobsApp.setConfig) {
-        root.LangJobsApp.setConfig({ targetLang: state.targetLang, mode: state.mode, betaReportingEnabled: state.betaReportingEnabled });
+        // Sin betaReportingEnabled: se respeta el valor que trae el build.
+        root.LangJobsApp.setConfig({ targetLang: state.targetLang, mode: state.mode });
       }
       if (state.enabled) startObserving(); else stopObserving();
     }
 
     // Leer config de storage (async). Sin chrome.storage, usar defaults.
     if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.get(['enabled', 'targetLang', 'mode', 'betaReportingEnabled'], function (cfg) {
+      chrome.storage.local.get(['enabled', 'targetLang', 'mode'], function (cfg) {
         apply(cfg || {});
       });
+      // Limpieza de estado muerto: las versiones con el switch de Beta en el
+      // popup dejaron 'betaReportingEnabled' guardado. Ya no se lee, pero se
+      // borra para que no quede configuración fantasma en el navegador.
+      if (chrome.storage.local.remove) {
+        try { chrome.storage.local.remove('betaReportingEnabled'); } catch (e) {}
+      }
     } else {
       apply({});
     }
@@ -2295,8 +2326,7 @@
         if (changes.enabled) partial.enabled = changes.enabled.newValue;
         if (changes.targetLang) partial.targetLang = changes.targetLang.newValue;
         if (changes.mode) partial.mode = changes.mode.newValue;
-        if (typeof changes.betaReportingEnabled !== 'undefined') partial.betaReportingEnabled = changes.betaReportingEnabled.newValue;
-        if (partial.enabled !== undefined || partial.targetLang || partial.mode || partial.betaReportingEnabled !== undefined) apply(partial);
+        if (partial.enabled !== undefined || partial.targetLang || partial.mode) apply(partial);
       });
     }
 

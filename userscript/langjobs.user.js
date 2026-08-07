@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.5.8
+// @version      0.5.9
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -1177,10 +1177,28 @@
   // Editable en el script generado (userscript/langjobs.user.js). En F2 pasa a
   // chrome.storage.local + popup. targetLang = idioma que se MANTIENE visible.
   // mode: 'label' (solo badge) | 'dim' (atenuar no deseados) | 'hide' (ocultar).
+  // ── Interruptor de DESARROLLO del Modo Beta / Reporter (v0.5.9) ────────────
+  // El botón ⚠️ de cada tarjeta y la barra flotante "Validar Página OK" son
+  // infraestructura de desarrollo, NO una función de usuario: sin
+  // `node tools/reporter_server.js` corriendo en la máquina del desarrollador
+  // no hacen nada útil (caen al portapapeles). Por eso dejaron de estar en el
+  // popup: quien quiera medir precisión en campo tiene que poner esta constante
+  // en true y RECONSTRUIR los dos bundles:
+  //
+  //     BETA_REPORTING = true
+  //     node tools/build_extension.js
+  //     node tools/build_userscript.js
+  //
+  // Mantenerla en false es lo que garantiza que el build publicable no muestre
+  // botones de desarrollo ni intente hablar con localhost. El bootstrap de la
+  // extensión ya NO lee `betaReportingEnabled` de chrome.storage, así que este
+  // archivo es el único lugar donde se decide.
+  const BETA_REPORTING = false;
+
   const CONFIG = {
     targetLang: 'es',
     mode: 'label', // Versión V1 MVP: Etiquetado Visual Exclusivo (90-95%+ valor entregado)
-    betaReportingEnabled: false,
+    betaReportingEnabled: BETA_REPORTING,
   };
 
   const BADGE = {
@@ -2024,6 +2042,9 @@
     if (partial && typeof partial === 'object') {
       if (partial.targetLang) CONFIG.targetLang = partial.targetLang;
       if (partial.mode) CONFIG.mode = partial.mode;
+      // betaReportingEnabled sigue siendo escribible por API para los tests y
+      // para la consola del desarrollador, pero NINGÚN bootstrap se lo pasa:
+      // el interruptor real es la constante BETA_REPORTING de este archivo.
       if (typeof partial.betaReportingEnabled !== 'undefined') CONFIG.betaReportingEnabled = !!partial.betaReportingEnabled;
     }
     // Reprocesar forzado para aplicar el nuevo modo (T1.9: con getDescription
@@ -2232,7 +2253,7 @@
     // Sella la versión en el DOM (ver la nota del bundler de la extensión).
     try {
       if (document.documentElement) {
-        document.documentElement.setAttribute('data-llf-version', '0.5.8');
+        document.documentElement.setAttribute('data-llf-version', '0.5.9');
       }
     } catch (e) {}
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
@@ -2253,7 +2274,7 @@
             ? LangJobsApp.getDomCards(document)
             : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
-          lines.push('LangJobs DEBUG v0.5.8 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.5.9 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
