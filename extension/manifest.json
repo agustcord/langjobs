@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LangJobs — Job Language Filter for LinkedIn",
-  "version": "0.5.8",
+  "version": "0.6.1",
   "description": "Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN). El detector corre 100% local en el DOM; solo las vacantes dudosas consultan el endpoint público de LinkedIn para resolver el idioma.",
   "author": "agustcord",
   "homepage_url": "https://github.com/agustcord/langjobs",
@@ -19,6 +19,9 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "permissions": [
     "storage"

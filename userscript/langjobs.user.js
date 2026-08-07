@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.5.8
+// @version      0.6.1
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -1177,10 +1177,28 @@
   // Editable en el script generado (userscript/langjobs.user.js). En F2 pasa a
   // chrome.storage.local + popup. targetLang = idioma que se MANTIENE visible.
   // mode: 'label' (solo badge) | 'dim' (atenuar no deseados) | 'hide' (ocultar).
+  // ── Interruptor de DESARROLLO del Modo Beta / Reporter (v0.5.9) ────────────
+  // El botón ⚠️ de cada tarjeta y la barra flotante "Validar Página OK" son
+  // infraestructura de desarrollo, NO una función de usuario: sin
+  // `node tools/reporter_server.js` corriendo en la máquina del desarrollador
+  // no hacen nada útil (caen al portapapeles). Por eso dejaron de estar en el
+  // popup: quien quiera medir precisión en campo tiene que poner esta constante
+  // en true y RECONSTRUIR los dos bundles:
+  //
+  //     BETA_REPORTING = true
+  //     node tools/build_extension.js
+  //     node tools/build_userscript.js
+  //
+  // Mantenerla en false es lo que garantiza que el build publicable no muestre
+  // botones de desarrollo ni intente hablar con localhost. El bootstrap de la
+  // extensión ya NO lee `betaReportingEnabled` de chrome.storage, así que este
+  // archivo es el único lugar donde se decide.
+  const BETA_REPORTING = false;
+
   const CONFIG = {
     targetLang: 'es',
     mode: 'label', // Versión V1 MVP: Etiquetado Visual Exclusivo (90-95%+ valor entregado)
-    betaReportingEnabled: false,
+    betaReportingEnabled: BETA_REPORTING,
   };
 
   const BADGE = {
@@ -1595,11 +1613,41 @@
       // v0.5.4: las tarjetas de la UI 2026 NO tienen data-job-id, así que el
       // ancla del badge se marca explícitamente con esta clase. Sin ella el
       // badge (position:absolute) se ancla a un ancestro lejano y no se ve.
-      '.' + CLS.host + '{position:relative !important;}\n' +
-      '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
+      //
+      // v0.5.11 — `isolation:isolate` es el arreglo del badge que se dibujaba
+      // ENCIMA del formulario de "Solicitud sencilla". Causa medida: la tarjeta
+      // tenía `position:relative` pero `z-index:auto`, así que NO creaba contexto
+      // de apilado propio; el `z-index` altísimo del badge competía en el
+      // contexto raíz y le ganaba al modal de LinkedIn (que ronda 9999). Con
+      // isolation la tarjeta crea su propio contexto y el badge queda encerrado
+      // ahí: sigue por encima del contenido de SU tarjeta y por debajo de
+      // cualquier overlay de LinkedIn.
+      //
+      // Se usa `isolation` y NO `z-index:0` a propósito: las dos crean contexto
+      // de apilado, pero z-index:0 además cambiaría el orden de pintado de la
+      // tarjeta respecto de sus hermanas (hoy es `auto`), y eso podría recortar
+      // un desplegable de LinkedIn que sobresalga de una tarjeta a la de al lado.
+      '.' + CLS.host + '{position:relative !important;isolation:isolate !important;}\n' +
+      // v0.5.10: posición por DEFECTO = debajo del ✕, alineado al borde derecho
+      // de la tarjeta. Hasta v0.5.9 era `top:8px;right:40px` (al lado del ✕, a
+      // la misma altura), y el título largo de la vacante se lo comía. Cuando la
+      // tarjeta tiene layout medible, positionBadge() refina estos valores
+      // midiendo el botón real; estos números son el fallback (jsdom, tarjetas
+      // sin ✕ de la UI legacy, tarjetas fuera de vista en la lista virtualizada).
+      // z-index 100 (v0.5.11): antes era 2147483647, el máximo. Con la tarjeta
+      // aislada alcanza y sobra para quedar sobre el contenido de la tarjeta, y
+      // es la segunda línea de defensa contra el bug del formulario: si por
+      // cualquier motivo el badge volviera a escapar de su contexto de apilado,
+      // 100 pierde contra cualquier modal de LinkedIn en vez de taparlo.
+      '.llf-badge{position:absolute !important;top:44px !important;right:8px !important;z-index:100;' +
       'display:inline-flex !important;align-items:center !important;gap:3px !important;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
       'line-height:1.4;pointer-events:none;}\n' +
+      // Con un diálogo modal abierto (p. ej. "Solicitud sencilla") los badges se
+      // apagan: no aportan nada sobre un formulario y así no pueden solaparlo.
+      // El sello vive en <html> (syncModalState), no en cada tarjeta, para que
+      // sea una sola escritura por pase.
+      '[data-llf-modal="1"] .llf-badge{display:none !important;}\n' +
       '.llf-reporter-btn{pointer-events:auto !important;cursor:pointer !important;display:inline-block;' +
       'opacity:0.85;font-size:10px;margin-left:2px;user-select:none;}\n' +
       '.llf-reporter-btn:hover{opacity:1.0;transform:scale(1.2);}\n' +
@@ -1632,6 +1680,107 @@
     if (card && card.classList && !card.classList.contains(CLS.host)) {
       card.classList.add(CLS.host);
     }
+  }
+
+  // ── Posición del badge: DEBAJO del ✕, nunca al lado (v0.5.10) ──────────────
+  // Problema medido en campo: con `top:8px; right:40px` el badge compartía
+  // renglón con el título de la vacante. Cuando el título es largo y envuelve a
+  // dos líneas (p. ej. "Especialista en Marketing - Prospección B2B"), el texto
+  // pasa por debajo del badge y queda ilegible. Y `right:40px` era un número
+  // mágico: daba por sentado un ✕ de 40px, sin validar en tarjetas promocionadas,
+  // con logo o guardadas.
+  //
+  // Regla nueva: se MIDE el rectángulo del botón ✕ y el badge se coloca alineado
+  // a su borde derecho, arrancando BADGE_GAP px por debajo de su borde inferior.
+  // Así queda en la columna del ✕ (zona sin texto) y fuera de su área de
+  // interacción, en cualquier variante de tarjeta. Además el badge conserva
+  // `pointer-events:none`, así que ni con solapamiento parcial podría robarle el
+  // click al botón.
+  //
+  // Devuelve true si pudo medir. Si la tarjeta no tiene layout (jsdom, tarjeta
+  // virtualizada fuera de vista) no toca nada y manda el CSS por defecto.
+  var BADGE_GAP = 6;
+  var BADGE_MIN_H = 18; // alto aproximado del badge, para no sacarlo de la tarjeta
+
+  function positionBadge(card, badge) {
+    if (!card || !badge || !badge.style || !badge.style.setProperty) return false;
+    try {
+      var anchor = card.querySelector ? card.querySelector(DISMISS_SEL) : null;
+      if (!anchor || !anchor.getBoundingClientRect || !card.getBoundingClientRect) return false;
+      if (!hasLayoutBox(card) || !hasLayoutBox(anchor)) return false;
+      var cr = card.getBoundingClientRect();
+      var ar = anchor.getBoundingClientRect();
+      if (!cr || !ar || !cr.height || !ar.height) return false;
+
+      var top = (ar.bottom - cr.top) + BADGE_GAP;
+      var right = cr.right - ar.right;
+
+      // Clamps: el badge nunca debe salirse de la tarjeta ni de su borde derecho.
+      if (right < 0) right = 0;
+      if (top < 0) top = 0;
+      var maxTop = cr.height - BADGE_MIN_H;
+      if (maxTop > 0 && top > maxTop) top = maxTop;
+
+      badge.style.setProperty('top', Math.round(top) + 'px', 'important');
+      badge.style.setProperty('right', Math.round(right) + 'px', 'important');
+      return true;
+    } catch (e) {
+      return false; // la posición nunca puede romper el etiquetado
+    }
+  }
+
+  // ── Guarda contra formularios y diálogos de LinkedIn (v0.5.11) ─────────────
+  // Segunda línea de defensa del bug reportado en campo: al abrir "Solicitud
+  // sencilla" los badges de las tarjetas de atrás aparecían SOBRE el formulario.
+  // El arreglo de fondo es `isolation:isolate` en la tarjeta (ver ensureStyles),
+  // pero mientras haya un diálogo modal abierto los badges tampoco tienen nada
+  // que aportar: se apagan por CSS y se vuelven a mostrar al cerrarlo.
+  //
+  // Deliberadamente CONSERVADOR para no apagar los badges de por vida:
+  //   • solo cuenta `[role="dialog"][aria-modal="true"]` (el contrato ARIA de un
+  //     diálogo modal ACTIVO) y el modal de postulación de LinkedIn;
+  //   • descarta los que están ocultos (hidden / aria-hidden / display:none),
+  //     porque en una SPA es normal que quede el cascarón de un modal cerrado.
+  // El estado queda sellado en <html data-llf-modal="1"> para que se pueda ver
+  // de un vistazo POR QUÉ desaparecieron los badges (misma lógica que
+  // data-llf-version y data-llf-src: si no se ve el motivo, no se depura).
+  var MODAL_SEL = '[role="dialog"][aria-modal="true"], .jobs-easy-apply-modal, .artdeco-modal-overlay';
+
+  function isHiddenNode(el) {
+    if (!el) return true;
+    if (el.hasAttribute && el.hasAttribute('hidden')) return true;
+    if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return true;
+    try {
+      var doc = el.ownerDocument;
+      var win = doc && (doc.defaultView || doc.parentWindow);
+      if (win && win.getComputedStyle) {
+        var st = win.getComputedStyle(el);
+        if (st && (st.display === 'none' || st.visibility === 'hidden')) return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function isModalOpen(doc) {
+    if (!doc || !doc.querySelectorAll) return false;
+    var nodes = doc.querySelectorAll(MODAL_SEL);
+    for (var i = 0; i < nodes.length; i++) {
+      if (!isHiddenNode(nodes[i])) return true;
+    }
+    return false;
+  }
+
+  // Sella el estado en <html> y devuelve si hay un modal abierto.
+  function syncModalState(doc) {
+    var d = doc || (typeof document !== 'undefined' ? document : null);
+    var html = d && d.documentElement;
+    if (!html) return false;
+    var open = isModalOpen(d);
+    try {
+      if (open) html.setAttribute('data-llf-modal', '1');
+      else if (html.removeAttribute) html.removeAttribute('data-llf-modal');
+    } catch (e) {}
+    return open;
   }
 
   // ── Aplica la acción DOM según CONFIG (T1.8) ───────────────────────────────
@@ -1713,7 +1862,14 @@
         badge.appendChild(badgeLabelNode);
       }
       badgeLabelNode.textContent = b.label;
-      badge.style.cssText = 'background:' + b.color + ';';
+      // v0.5.10: setProperty en vez de `style.cssText = …`. cssText REEMPLAZA el
+      // atributo style completo, así que borraba el top/right inline calculado
+      // por positionBadge() en el pase anterior.
+      if (badge.style && badge.style.setProperty) badge.style.setProperty('background', b.color);
+      else badge.style.cssText = 'background:' + b.color + ';';
+      // Se reposiciona en CADA pase: LinkedIn re-renderiza la tarjeta y el ✕
+      // puede cambiar de tamaño o de sitio (tarjeta promocionada, con logo…).
+      positionBadge(card, badge);
 
       let reporterBtn = badge.querySelector('.llf-reporter-btn');
       if (isBeta) {
@@ -1826,6 +1982,12 @@
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     ensureStyles(document);
     ensureBadgeHost(card); // idempotente: repone la clase si LinkedIn la borró
+    // v0.5.10: reposicionar SIEMPRE, también en el atajo por hash. La geometría
+    // de una tarjeta cambia sin que cambie su texto: al abrir el panel de
+    // detalle la lista se angosta, y una tarjeta re-renderizada puede quedar
+    // más alta o más baja. Como en ese camino tagCard() no se ejecuta, el badge
+    // se quedaría anclado a la medida vieja del ✕.
+    if (card.querySelector) positionBadge(card, card.querySelector('.llf-badge'));
     applyAction(card, data, document, opts.config);
     return data;
   }
@@ -1894,6 +2056,26 @@
     if (esNode) esNode.textContent = stats.esCount;
     if (enNode) enNode.textContent = stats.enCount;
     if (unkNode) unkNode.textContent = stats.unknownCount;
+  }
+
+  // ── Conteo de etiquetas de la página (fuente única, v0.6.0) ────────────────
+  // Se cuenta por la marca propia `data-llf-lang`, que es válida en las dos UIs
+  // (la de 2026 no tiene data-job-id). Antes esta cuenta estaba duplicada en el
+  // bootstrap de la extensión y en el banner de beta; ahora los dos y el
+  // contador del icono de la barra leen de acá, así que no pueden discrepar.
+  function countLangs(root) {
+    const out = { es: 0, en: 0, unknown: 0, total: 0 };
+    const doc = root || (typeof document !== 'undefined' ? document : null);
+    if (!doc || !doc.querySelectorAll) return out;
+    const nodes = doc.querySelectorAll('[data-llf-lang]');
+    for (let i = 0; i < nodes.length; i++) {
+      const lang = nodes[i].getAttribute && nodes[i].getAttribute('data-llf-lang');
+      if (lang === 'es') out.es++;
+      else if (lang === 'en') out.en++;
+      else if (lang === 'unknown') out.unknown++;
+    }
+    out.total = out.es + out.en + out.unknown;
+    return out;
   }
 
   // ── Canario de salud (v0.5.6) ──────────────────────────────────────────────
@@ -1998,6 +2180,9 @@
     if (!root || !root.querySelectorAll) return [];
     const list = getDomCards(root).filter(isJobCardContainer);
     LAST_ERRORS.length = 0;
+    // v0.5.11: un querySelectorAll por pase para saber si hay un formulario o
+    // diálogo modal abierto. Nunca puede romper el etiquetado.
+    try { syncModalState(root.ownerDocument || root); } catch (e) {}
     const res = list.map(function (card, i) {
       // BLINDAJE (v0.3.0): una tarjeta con forma inesperada (LinkedIn redeploy)
       // NO debe matar el loop entero — eso producía "solo la primera tarjeta
@@ -2015,6 +2200,13 @@
     if (opts.health !== false) {
       try { health(root); } catch (e) { /* el canario nunca debe romper el etiquetado */ }
     }
+    // v0.6.0: gancho de fin de pase. Lo usa el bootstrap de la extensión para
+    // empujar el conteo al service worker y pintarlo sobre el icono de la barra
+    // (el content script no puede llamar a chrome.action). Va al final y
+    // blindado: un consumidor que lance no puede romper el etiquetado.
+    if (typeof opts.onPass === 'function') {
+      try { opts.onPass(countLangs(root), res); } catch (e) {}
+    }
     return res;
   }
 
@@ -2024,6 +2216,9 @@
     if (partial && typeof partial === 'object') {
       if (partial.targetLang) CONFIG.targetLang = partial.targetLang;
       if (partial.mode) CONFIG.mode = partial.mode;
+      // betaReportingEnabled sigue siendo escribible por API para los tests y
+      // para la consola del desarrollador, pero NINGÚN bootstrap se lo pasa:
+      // el interruptor real es la constante BETA_REPORTING de este archivo.
       if (typeof partial.betaReportingEnabled !== 'undefined') CONFIG.betaReportingEnabled = !!partial.betaReportingEnabled;
     }
     // Reprocesar forzado para aplicar el nuevo modo (T1.9: con getDescription
@@ -2054,6 +2249,12 @@
     if (banner) {
       if (banner.remove) banner.remove();
       else if (banner.parentNode && banner.parentNode.removeChild) banner.parentNode.removeChild(banner);
+    }
+
+    // v0.5.11: al apagar el etiquetado no debe quedar el sello del modal, o el
+    // CSS seguiría ocultando badges cuando se vuelva a encender.
+    if (document.documentElement && document.documentElement.removeAttribute) {
+      document.documentElement.removeAttribute('data-llf-modal');
     }
 
     const badges = document.querySelectorAll('.llf-badge');
@@ -2206,6 +2407,10 @@
     classify: classify,
     health: health,
     getDomCards: getDomCards,
+    positionBadge: positionBadge,
+    isModalOpen: isModalOpen,
+    syncModalState: syncModalState,
+    countLangs: countLangs,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
@@ -2232,7 +2437,7 @@
     // Sella la versión en el DOM (ver la nota del bundler de la extensión).
     try {
       if (document.documentElement) {
-        document.documentElement.setAttribute('data-llf-version', '0.5.8');
+        document.documentElement.setAttribute('data-llf-version', '0.6.1');
       }
     } catch (e) {}
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
@@ -2253,7 +2458,7 @@
             ? LangJobsApp.getDomCards(document)
             : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
-          lines.push('LangJobs DEBUG v0.5.8 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.6.1 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];

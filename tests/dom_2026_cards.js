@@ -871,6 +871,309 @@ const cEs = buildCard8(s8.doc, s8.list, 'Analista de Gestión Contable', 'Globan
 check('un título realmente español sigue dando ES sin ayuda de la empresa',
   APP.classify(cEs, null).lang === 'es', APP.classify(cEs, null).lang);
 
+// ── Escenario 14: el badge va DEBAJO del ✕, no al lado (v0.5.10) ───────────
+// Bug de campo: con `top:8px; right:40px` el badge compartía renglón con el
+// título y, cuando el título envuelve a dos líneas ("Especialista en Marketing
+// - Prospección B2B"), lo tapaba. jsdom no hace layout, así que acá se
+// INYECTAN rectángulos reales (los medidos en campo: tarjeta 367x126, botón ✕
+// de 32x32 en la esquina superior derecha) para poder verificar la geometría
+// sin navegador.
+console.log('\n═══ Posición del badge: debajo del ✕ ═══');
+(function escenario14() {
+  const RECT_CARD = { left: 0, top: 0, right: 367, bottom: 126, width: 367, height: 126 };
+  const RECT_BTN  = { left: 327, top: 8, right: 359, bottom: 40, width: 32, height: 32 };
+
+  function stubBox(el, rect) {
+    el.getBoundingClientRect = function () { return rect; };
+    Object.defineProperty(el, 'offsetWidth',  { get: function () { return rect.width; }, configurable: true });
+    Object.defineProperty(el, 'offsetHeight', { get: function () { return rect.height; }, configurable: true });
+  }
+
+  const s14 = buildDom2026();
+  global.window = s14.dom.window;
+  global.document = s14.dom.window.document;
+
+  const card = s14.doc.querySelector('[data-test-card="0"]');
+  const btn = card.querySelector('button[aria-label^="Descartar empleo"]');
+  stubBox(card, RECT_CARD);
+  stubBox(btn, RECT_BTN);
+
+  APP.processAll(s14.doc, { getDescription: APP.makeGetDescription(s14.doc), health: false });
+  const badge = card.querySelector('.llf-badge');
+
+  check('la tarjeta con layout medible recibe badge', !!badge);
+  const top = badge ? parseInt(badge.style.top, 10) : NaN;
+  const right = badge ? parseInt(badge.style.right, 10) : NaN;
+  console.log('  badge medido → top=' + badge.style.top + ' right=' + badge.style.right);
+
+  check('el badge arranca DEBAJO del borde inferior del ✕',
+    top >= (RECT_BTN.bottom - RECT_CARD.top), 'top=' + top + ' vs ✕ bottom=' + RECT_BTN.bottom);
+  check('deja un espacio libre respecto del ✕ (no pega con su área de click)',
+    top === (RECT_BTN.bottom - RECT_CARD.top) + 6, 'top=' + top);
+  check('se alinea con el borde derecho del ✕ (misma columna, sin pisar el título)',
+    right === (RECT_CARD.right - RECT_BTN.right), 'right=' + right);
+  check('el badge no se sale de la tarjeta por abajo',
+    top <= RECT_CARD.height - 18, 'top=' + top + ' altura tarjeta=' + RECT_CARD.height);
+  check('el badge sigue sin capturar clicks (pointer-events:none en el CSS)',
+    (s14.doc.getElementById('llf-styles').textContent || '').indexOf('pointer-events:none') !== -1);
+  check('el color de fondo sobrevive al reposicionamiento',
+    !!badge && /background/.test(badge.getAttribute('style') || ''),
+    badge && badge.getAttribute('style'));
+
+  // Un segundo pase no debe perder la posición (cssText la borraba).
+  APP.processAll(s14.doc, { getDescription: APP.makeGetDescription(s14.doc), health: false });
+  const badge2 = card.querySelector('.llf-badge');
+  check('un pase posterior conserva la posición medida',
+    parseInt(badge2.style.top, 10) === top && parseInt(badge2.style.right, 10) === right,
+    'top=' + badge2.style.top + ' right=' + badge2.style.right);
+
+  // ✕ muy abajo: el badge se recorta contra el borde inferior, no se escapa.
+  const cardB = s14.doc.querySelector('[data-test-card="1"]');
+  const btnB = cardB.querySelector('button[aria-label^="Descartar empleo"]');
+  stubBox(cardB, { left: 0, top: 0, right: 367, bottom: 126, width: 367, height: 126 });
+  stubBox(btnB, { left: 327, top: 90, right: 359, bottom: 122, width: 32, height: 32 });
+  APP.processAll(s14.doc, { getDescription: APP.makeGetDescription(s14.doc), health: false });
+  const badgeB = cardB.querySelector('.llf-badge');
+  check('si el ✕ está al pie de la tarjeta, el badge se mantiene dentro',
+    parseInt(badgeB.style.top, 10) <= 126 - 18, 'top=' + badgeB.style.top);
+
+  // Sin layout medible (tarjeta virtualizada fuera de vista): manda el CSS.
+  const cardC = s14.doc.querySelector('[data-test-card="2"]');
+  const badgeC = cardC.querySelector('.llf-badge');
+  check('sin layout medible no se inventa una posición inline',
+    !badgeC.style.top && !badgeC.style.right,
+    'top=' + JSON.stringify(badgeC.style.top) + ' right=' + JSON.stringify(badgeC.style.right));
+  const css = s14.doc.getElementById('llf-styles').textContent || '';
+  check('el CSS por defecto ya coloca el badge debajo del ✕ (no a su izquierda)',
+    css.indexOf('top:44px') !== -1 && css.indexOf('right:8px') !== -1 &&
+    css.indexOf('right:40px') === -1);
+})();
+
+// ── Escenario 15: formularios y diálogos modales (v0.5.11) ─────────────────
+// Bug de campo: al abrir "Solicitud sencilla" los badges de las tarjetas de
+// atrás se dibujaban ENCIMA del formulario. Causa: la tarjeta tenía
+// position:relative pero z-index:auto → no creaba contexto de apilado, y el
+// z-index máximo del badge le ganaba al modal en el contexto raíz.
+//
+// LÍMITE HONESTO DE ESTE HARNESS: jsdom no implementa contextos de apilado ni
+// pintado, así que el arreglo de fondo (isolation:isolate) NO se puede verificar
+// acá — solo se comprueba que la regla se emita. Lo que sí se verifica de verdad
+// es la segunda defensa: el sello data-llf-modal y, sobre todo, que un modal
+// CERRADO no apague los badges (ese sería un fallo peor que el original).
+console.log('\n═══ Formularios modales: el badge no puede taparlos ═══');
+(function escenario15() {
+  const s15 = buildDom2026();
+  global.window = s15.dom.window;
+  global.document = s15.dom.window.document;
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+
+  const css = s15.doc.getElementById('llf-styles').textContent || '';
+  check('la tarjeta crea contexto de apilado propio (isolation:isolate)',
+    css.indexOf('isolation:isolate') !== -1);
+  check('el badge ya no usa el z-index máximo (perdería contra cualquier modal)',
+    css.indexOf('2147483647') === -1 || css.indexOf('.llf-badge{position:absolute !important;top:44px !important;right:8px !important;z-index:100') !== -1);
+  check('existe la regla que apaga los badges con un modal abierto',
+    css.indexOf('[data-llf-modal="1"] .llf-badge') !== -1);
+
+  // (a) Sin modal → sin sello.
+  check('sin diálogos, <html> no queda sellado',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'),
+    JSON.stringify(s15.doc.documentElement.getAttribute('data-llf-modal')));
+
+  // (b) Modal de postulación abierto (contrato ARIA de diálogo modal activo).
+  const modal = s15.doc.createElement('div');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.textContent = 'Solicitar empleo en STIB Ingeniería de Aplicación';
+  s15.doc.body.appendChild(modal);
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+  check('con el formulario abierto se sella <html data-llf-modal="1">',
+    s15.doc.documentElement.getAttribute('data-llf-modal') === '1');
+  check('los badges siguen en el DOM (se apagan por CSS, no se destruyen)',
+    s15.doc.querySelectorAll('.llf-badge').length === JOBS.length,
+    'badges=' + s15.doc.querySelectorAll('.llf-badge').length);
+
+  // (c) Al cerrarlo, los badges vuelven.
+  modal.remove();
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+  check('al cerrar el formulario se quita el sello y los badges vuelven',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'));
+
+  // (d) EL CASO PELIGROSO: en una SPA queda el cascarón de un modal cerrado.
+  // Si lo contáramos, los badges quedarían apagados para siempre.
+  const cerrado = s15.doc.createElement('div');
+  cerrado.setAttribute('role', 'dialog');
+  cerrado.setAttribute('aria-modal', 'true');
+  cerrado.setAttribute('style', 'display:none');
+  s15.doc.body.appendChild(cerrado);
+  check('un diálogo con display:none NO cuenta como modal abierto',
+    APP.isModalOpen(s15.doc) === false);
+
+  const ariaOculto = s15.doc.createElement('div');
+  ariaOculto.setAttribute('role', 'dialog');
+  ariaOculto.setAttribute('aria-modal', 'true');
+  ariaOculto.setAttribute('aria-hidden', 'true');
+  s15.doc.body.appendChild(ariaOculto);
+  check('un diálogo con aria-hidden="true" tampoco cuenta',
+    APP.isModalOpen(s15.doc) === false);
+
+  const conHidden = s15.doc.createElement('div');
+  conHidden.setAttribute('role', 'dialog');
+  conHidden.setAttribute('aria-modal', 'true');
+  conHidden.setAttribute('hidden', '');
+  s15.doc.body.appendChild(conHidden);
+  check('un diálogo con el atributo hidden tampoco cuenta',
+    APP.isModalOpen(s15.doc) === false);
+
+  APP.processAll(s15.doc, { getDescription: APP.makeGetDescription(s15.doc), health: false });
+  check('con solo cascarones cerrados, <html> sigue sin sello (badges visibles)',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'));
+
+  // (e) Un <dialog> sin aria-modal (no modal) no debe apagar nada.
+  const noModal = s15.doc.createElement('div');
+  noModal.setAttribute('role', 'dialog');
+  s15.doc.body.appendChild(noModal);
+  check('un diálogo NO modal (sin aria-modal) no apaga los badges',
+    APP.isModalOpen(s15.doc) === false);
+
+  // (f) clearAll debe llevarse el sello, o al reactivar quedarían ocultos.
+  s15.doc.documentElement.setAttribute('data-llf-modal', '1');
+  APP.clearAll(s15.doc);
+  check('clearAll borra el sello del modal (si no, al reactivar no se verían)',
+    !s15.doc.documentElement.getAttribute('data-llf-modal'));
+})();
+
+// ── Escenario 16: conteo de la página y gancho de fin de pase (v0.6.0) ─────
+// Sostiene el contador del icono de la barra: el content script no puede llamar
+// a chrome.action, así que cuenta con countLangs() y empuja el resultado al
+// service worker en cada pase (opts.onPass). El popup y el icono leen la MISMA
+// función, así que no pueden discrepar.
+console.log('\n═══ Conteo de la página y gancho onPass ═══');
+(function escenario16() {
+  const s16 = buildDom2026();
+  global.window = s16.dom.window;
+  global.document = s16.dom.window.document;
+
+  const pases = [];
+  APP.processAll(s16.doc, {
+    getDescription: APP.makeGetDescription(s16.doc),
+    health: false,
+    onPass: function (counts) { pases.push(counts); },
+  });
+
+  const c = APP.countLangs(s16.doc);
+  check('countLangs cuenta una entrada por tarjeta etiquetada',
+    c.total === JOBS.length, JSON.stringify(c));
+  check('el total es la suma de es + en + ??',
+    c.total === c.es + c.en + c.unknown, JSON.stringify(c));
+  check('onPass se llama una vez por pase', pases.length === 1, 'pases=' + pases.length);
+  check('onPass recibe el mismo conteo que countLangs',
+    JSON.stringify(pases[0]) === JSON.stringify(c),
+    JSON.stringify(pases[0]) + ' vs ' + JSON.stringify(c));
+
+  // Un consumidor que lanza NO puede romper el etiquetado (el badge del icono
+  // es un adorno; el etiquetado es el producto).
+  const antes = s16.doc.querySelectorAll('.llf-badge').length;
+  let huboError = false;
+  try {
+    APP.processAll(s16.doc, {
+      getDescription: APP.makeGetDescription(s16.doc),
+      health: false,
+      onPass: function () { throw new Error('service worker caído'); },
+    });
+  } catch (e) { huboError = true; }
+  check('un onPass que lanza no propaga la excepción', !huboError);
+  check('y el etiquetado sigue intacto',
+    s16.doc.querySelectorAll('.llf-badge').length === antes,
+    'badges=' + s16.doc.querySelectorAll('.llf-badge').length);
+
+  // Con el etiquetado limpiado, el conteo vuelve a cero (el icono se apaga).
+  APP.clearAll(s16.doc);
+  const cero = APP.countLangs(s16.doc);
+  check('tras clearAll el conteo queda en cero', cero.total === 0, JSON.stringify(cero));
+})();
+
+// ── Escenario 17: traducción del conteo al badge del icono (v0.6.1) ────────
+// Regla que se está fijando: el icono muestra UN SOLO número, el del IDIOMA DE
+// PREFERENCIA del usuario (targetLang) — con targetLang='es', cuántas vacantes
+// en español hay en la página. El color es el del idioma contado cuando el
+// conteo está cerrado, y ámbar mientras queden «??», porque en ese caso el
+// número todavía puede subir.
+console.log('\n═══ Badge del icono de la barra ═══');
+(function escenario17() {
+  // background.js es un service worker: no exporta con module.exports, publica
+  // en globalThis. Se evalúa el archivo sin `chrome` definido (los listeners
+  // quedan sin registrar) para poder probar la lógica pura.
+  const fs = require('fs');
+  const swPath = path.join(__dirname, '..', 'extension', 'background.js');
+  const code = fs.readFileSync(swPath, 'utf8');
+  const prevChrome = global.chrome;
+  global.chrome = undefined;
+  try {
+    // eslint-disable-next-line no-new-func
+    (new Function(code))();
+  } finally {
+    global.chrome = prevChrome;
+  }
+  const ICON = globalThis.LangJobsIconBadge;
+  check('background.js expone su lógica para poder testearla', !!ICON);
+
+  const b = function (es, en, unk, lang) {
+    return ICON.badgeFromCounts({ es: es, en: en, unknown: unk, total: es + en + unk }, lang);
+  };
+
+  check('página sin etiquetar → icono sin número',
+    b(0, 0, 0, 'es').text === '', JSON.stringify(b(0, 0, 0, 'es').text));
+
+  // El caso de la captura de campo: 20 ES / 2 EN / 3 ?? con preferencia ES.
+  check('con preferencia ES el número son las vacantes en ESPAÑOL',
+    b(20, 2, 3, 'es').text === '20', JSON.stringify(b(20, 2, 3, 'es')));
+  check('el mismo conteo con preferencia EN muestra las vacantes en INGLÉS',
+    b(20, 2, 3, 'en').text === '2', JSON.stringify(b(20, 2, 3, 'en')));
+  check('nunca se muestran dos números: es un solo contador',
+    b(20, 2, 3, 'es').text.indexOf('·') === -1 && b(5, 12, 10, 'en').text.indexOf('·') === -1,
+    JSON.stringify(b(20, 2, 3, 'es').text) + ' / ' + JSON.stringify(b(5, 12, 10, 'en').text));
+
+  check('conteo cerrado con preferencia ES → azul de LinkedIn',
+    b(20, 5, 0, 'es').color === ICON.COLOR_BY_LANG.es, JSON.stringify(b(20, 5, 0, 'es')));
+  check('conteo cerrado con preferencia EN → verde',
+    b(20, 5, 0, 'en').color === ICON.COLOR_BY_LANG.en, JSON.stringify(b(20, 5, 0, 'en')));
+  check('mientras queden «??» el color es ámbar (el número puede subir)',
+    b(20, 2, 3, 'es').color === ICON.COLOR_PENDING, JSON.stringify(b(20, 2, 3, 'es')));
+  check('ninguna vacante en el idioma buscado → "0", no vacío',
+    b(0, 25, 0, 'es').text === '0', JSON.stringify(b(0, 25, 0, 'es')));
+  check('números de 3 cifras se recortan a 99+',
+    b(120, 0, 0, 'es').text === '99+', JSON.stringify(b(120, 0, 0, 'es').text));
+
+  check('el tooltip dice cuántas de cuántas y en qué idioma',
+    b(20, 2, 3, 'es').title.indexOf('20 de 25 vacantes en español') !== -1,
+    JSON.stringify(b(20, 2, 3, 'es').title));
+  check('el tooltip mantiene el desglose completo sin necesidad de clic',
+    b(20, 2, 3, 'es').title.indexOf('20 en español') !== -1 &&
+    b(20, 2, 3, 'es').title.indexOf('2 en inglés') !== -1 &&
+    b(20, 2, 3, 'es').title.indexOf('3 ambiguas') !== -1,
+    JSON.stringify(b(20, 2, 3, 'es').title));
+  check('el tooltip avisa que las dudosas se están resolviendo',
+    b(20, 2, 3, 'es').title.indexOf('segundo plano') !== -1);
+  check('sin dudosas el tooltip no habla de resolución pendiente',
+    b(20, 5, 0, 'es').title.indexOf('segundo plano') === -1);
+
+  // Sin targetLang (mensaje viejo o config incompleta) se asume el default del
+  // producto, 'es': el icono nunca debe quedar en blanco por eso.
+  check('sin targetLang se usa el default del producto (es)',
+    ICON.badgeFromCounts({ es: 7, en: 1, unknown: 0, total: 8 }).text === '7',
+    JSON.stringify(ICON.badgeFromCounts({ es: 7, en: 1, unknown: 0, total: 8 })));
+  check('un targetLang desconocido no rompe el icono',
+    b(7, 1, 0, 'pt').text === '7', JSON.stringify(b(7, 1, 0, 'pt')));
+
+  // Entrada corrupta: se degrada a 0 en vez de escribir "NaN" o "undefined".
+  check('un conteo corrupto no rompe el icono',
+    ICON.badgeFromCounts(null).text === '' &&
+    ICON.badgeFromCounts({ es: 'x', unknown: null, total: 3 }, 'es').text === '0' &&
+    ICON.badgeFromCounts({ es: NaN, en: 2, unknown: 1, total: 3 }, 'es').text === '0',
+    JSON.stringify(ICON.badgeFromCounts({ es: NaN, en: 2, unknown: 1, total: 3 }, 'es')));
+})();
+
 // ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
 // Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
 // endpoint público está caído o tira 429, cada pase del MutationObserver

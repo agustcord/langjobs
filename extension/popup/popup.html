@@ -28,18 +28,6 @@
       </label>
     </section>
 
-    <section class="toggle-row" style="margin-top: 12px; border-top: 1px dashed #e6e6e6; padding-top: 12px;">
-      <div class="toggle-label">
-        <span class="toggle-title">Modo Beta / Reporter ⚠️</span>
-        <span class="toggle-hint">Muestra un botón ⚠️ para reportar clasificaciones erróneas.</span>
-        <span class="toggle-hint" style="color: #0a66c2; margin-top: 5px; font-weight: 600; display: block;">⚡ Ejecuta <code style="background: #eef3f8; padding: 1px 4px; border-radius: 3px;">node tools/reporter_server.js</code> en la terminal para auto-guardar en Obsidian.</span>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="betaReportingEnabled" />
-        <span class="slider"></span>
-      </label>
-    </section>
-
     <section class="stats" id="stats">
       <p class="stats-title">Vacantes etiquetadas en esta página</p>
       <div class="stats-grid">
@@ -57,6 +45,13 @@
         </div>
       </div>
       <p class="stats-note" id="stats-note">Abre linkedin.com/jobs para ver el conteo.</p>
+      <p class="stats-note icon-hint">
+        Sin abrir esto: el número sobre el icono es cuántas vacantes hay en tu
+        idioma de preferencia (<b>ES</b>).
+        <span class="dot dot-target"></span> azul = conteo cerrado ·
+        <span class="dot dot-pending"></span> ámbar = todavía resolviendo
+        <b>??</b>, el número puede subir.
+      </p>
     </section>
 
     <section class="glossary">

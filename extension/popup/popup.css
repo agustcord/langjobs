@@ -75,6 +75,19 @@ main { padding: 16px; }
 .stat-unknown .stat-label { color: #8c8c8c; }
 .stats-note { margin: 10px 0 0; font-size: 10px; color: #9aa4b2; line-height: 1.4; }
 
+/* Leyenda del contador del icono de la barra (v0.6.0) */
+.icon-hint { border-top: 1px dashed #e6e6e6; padding-top: 8px; color: #6b7280; }
+.icon-hint b { color: #1d2226; }
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.dot-target { background: #0a66c2; }
+.dot-pending { background: #b45309; }
+
 .glossary {
   margin-top: 16px;
   background: #f3f6fb;
