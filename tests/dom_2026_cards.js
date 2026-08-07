@@ -490,6 +490,59 @@ check('un título que EMPIEZA con "es" no se filtra como ruido',
 check('una empresa que EMPIEZA con "en" no se filtra como ruido',
   esData.company === 'Encargados SA', JSON.stringify(esData.company));
 
+// ── Escenario 8: la EMPRESA no debe decidir el idioma ─────────────────────
+// Regresión introducida en v0.5.4 y detectada en campo: al agregar el fallback
+// estructural de empresa, el nombre de la empresa entró al detector. Una sola
+// tilde ("Telefónica", "Córdoba", "Compañía") suma a weightedEs y gana por
+// proporción ANTES de que se consulte la capa de roles, así que títulos en
+// inglés salían 'es'. Medido: 130 de 288 combinaciones volteaban, y en campo
+// 19 de 19 tarjetas del camino por título quedaron etiquetadas ES.
+console.log('\n═══ El nombre de la empresa no decide el idioma ═══');
+const s8 = buildDom2026();
+global.window = s8.dom.window;
+global.document = s8.dom.window.document;
+
+function buildCard8(doc, list, title, company, meta) {
+  const w = doc.createElement('div');
+  w.setAttribute('style', 'display:contents');
+  const card = doc.createElement('div');
+  const inner = doc.createElement('div');
+  [title, company, meta].forEach(function (t) {
+    const p = doc.createElement('p'); p.textContent = t; inner.appendChild(p);
+  });
+  const b = doc.createElement('button');
+  b.setAttribute('aria-label', 'Descartar empleo «' + title + '»');
+  inner.appendChild(b);
+  card.appendChild(inner);
+  w.appendChild(card);
+  list.appendChild(w);
+  return card;
+}
+
+// Título inglés + empresa con tilde + REMOTO (para no disparar el fetch).
+const EMPRESAS_TILDE = ['Telefónica', 'Compañía de Servicios', 'Grupo Córdoba', 'Gestión y Logística'];
+const resultados8 = [];
+const cards8 = [];
+let todasEn = true;
+EMPRESAS_TILDE.forEach(function (emp, i) {
+  const c = buildCard8(s8.doc, s8.list, ['Account Manager', 'Product Owner', 'Data Engineer', 'Frontend Developer'][i],
+    emp, 'Buenos Aires (En remoto)');
+  cards8.push(c);
+  const r = APP.classify(c, null);
+  resultados8.push(r.title + ' + ' + emp + ' → ' + r.lang);
+  if (r.lang !== 'en') todasEn = false;
+});
+check('un título en inglés con empresa acentuada NO se etiqueta ES', todasEn,
+  resultados8.join(' | '));
+check('la empresa se sigue extrayendo (clave de caché, hash y fixtures)',
+  cards8.every(function (c, i) { return SEL.extractFromCard(c).company === EMPRESAS_TILDE[i]; }),
+  cards8.map(function (c) { return SEL.extractFromCard(c).company; }).join(' | '));
+
+// Y el caso inverso: un título realmente español sigue dando ES por sí solo.
+const cEs = buildCard8(s8.doc, s8.list, 'Analista de Gestión Contable', 'Globant', 'Rosario (En remoto)');
+check('un título realmente español sigue dando ES sin ayuda de la empresa',
+  APP.classify(cEs, null).lang === 'es', APP.classify(cEs, null).lang);
+
 // ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
 // Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
 // endpoint público está caído o tira 429, cada pase del MutationObserver

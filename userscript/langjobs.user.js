@@ -1252,8 +1252,21 @@
       return data;
     }
 
-    // 3. Capa de detección por título + empresa + modalidad
-    const detInput = (data.title || '') + ' ' + (data.company || '');
+    // 3. Capa de detección por TÍTULO + modalidad
+    // v0.5.6: el nombre de la empresa NO es evidencia del idioma del aviso.
+    // "Telefónica" no lo vuelve español ni "Globant" inglés. Peor: inyecta
+    // tildes y stopwords ES que activan la Regla de Oro de Diacríticos del
+    // detector (accentHits suma a weightedEs y gana por proporción ANTES de que
+    // se consulte la capa de roles). Medido con tests/_tmp_bias: 130 de 288
+    // combinaciones "título en inglés + empresa" volteaban a 'es' solo por eso,
+    // y en campo dejó 19 de 19 tarjetas del camino por título etiquetadas ES.
+    // La empresa se sigue extrayendo: sirve para la clave de caché, el hash y
+    // los fixtures del reporter, pero no para decidir el idioma.
+    // Único caso en que se agrega: cuando el título no se pudo leer (UI legacy,
+    // donde a veces el texto del título no era accesible y la empresa era la
+    // única señal disponible).
+    const titleText = (data.title || '').trim();
+    const detInput = (titleText.length >= 3) ? titleText : (titleText + ' ' + (data.company || ''));
     const detRes = detector.detectLanguage(detInput, { modality: data.modality });
     data.lang = detRes.lang;
     data.isAmbiguous = detRes.isAmbiguous || false;

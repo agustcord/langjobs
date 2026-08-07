@@ -708,6 +708,15 @@
         });
         return { conteo: f, resueltas_por_descripcion: porFetch };
       })(),
+      // Listado completo para auditar a ojo: título + idioma + fuente. Es lo
+      // que permite detectar un badge mal puesto sin abrir las 25 vacantes.
+      tarjetas: cards.map(function (c) {
+        return {
+          t: titleOf(c).slice(0, 46),
+          lang: c.getAttribute('data-llf-lang') || '?',
+          src: (c.getAttribute('data-llf-src') || '?').replace('async-fetch', 'fetch'),
+        };
+      }),
       jobids: (function () {
         var ok = 0, muestra = [];
         cards.forEach(function (c) {
