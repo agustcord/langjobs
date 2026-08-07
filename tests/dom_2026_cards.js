@@ -490,6 +490,128 @@ check('un título que EMPIEZA con "es" no se filtra como ruido',
 check('una empresa que EMPIEZA con "en" no se filtra como ruido',
   esData.company === 'Encargados SA', JSON.stringify(esData.company));
 
+// ── Escenario 10: abrir la vacante SIEMPRE corrige la etiqueta ─────────────
+// Reporte de campo: "3 vacantes en inglés etiquetadas ES, y no cambiaba su
+// etiqueta incluso después de haber abierto la tarjeta".
+// Causa: el hash miraba el panel de detalle sólo en el `else` de la caché. Una
+// vez que la caché tenía un valor (aunque fuera equivocado), el hash dejaba de
+// cambiar al abrir la vacante → processCard reusaba la etiqueta vieja → tagCard
+// nunca corría. La descripción del panel es el texto que el usuario está VIENDO:
+// tiene que poder corregir cualquier valor cacheado.
+console.log('\n═══ Abrir la vacante corrige una etiqueta cacheada mal ═══');
+(function escenario10() {
+  const s10 = buildDom2026();
+  global.window = s10.dom.window;
+  global.document = s10.dom.window.document;
+
+  const ID = '4488001122';
+  const TITULO = 'Account Manager';
+  const card = (function () {
+    const doc = s10.doc;
+    const w = doc.createElement('div');
+    w.setAttribute('style', 'display:contents');
+    const c = doc.createElement('div');
+    c.setAttribute('data-test-card', 'poisoned');
+    const inner = doc.createElement('div');
+    inner.setAttribute('componentkey', 'job-card-component-ref-' + ID);
+    [TITULO, 'Telefónica', 'Rosario (Híbrido)'].forEach(function (t) {
+      const p = doc.createElement('p'); p.textContent = t; inner.appendChild(p);
+    });
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «' + TITULO + '»');
+    inner.appendChild(b);
+    c.appendChild(inner);
+    w.appendChild(c);
+    s10.list.appendChild(w);
+    return c;
+  })();
+
+  // Simular el estado que reportó el usuario: la caché quedó envenenada con 'es'
+  // (por ejemplo, un fetch que capturó chrome de la página pública en español).
+  APP.FETCH_CACHE[ID] = 'es';
+  APP.processAll(s10.doc, { getDescription: APP.makeGetDescription(s10.doc), health: false });
+  check('la tarjeta arranca con la etiqueta ES envenenada de la caché',
+    card.getAttribute('data-llf-lang') === 'es', card.getAttribute('data-llf-lang'));
+
+  // El usuario abre la vacante: el panel muestra el aviso, que está en INGLÉS.
+  const pane = s10.doc.createElement('div');
+  const top = s10.doc.createElement('div');
+  const dis = s10.doc.createElement('button');
+  dis.setAttribute('aria-label', 'Descartar empleo «' + TITULO + '»');
+  top.appendChild(dis);
+  const body = s10.doc.createElement('div');
+  body.id = 'job-details';
+  body.textContent = 'We are looking for an experienced account manager to join our sales team. ' +
+    'You will be responsible for managing a portfolio of key clients and for building long term ' +
+    'relationships with them. The ideal candidate has strong communication skills.';
+  pane.appendChild(top); pane.appendChild(body);
+  s10.doc.body.firstChild.appendChild(pane);
+  // La URL apunta a esa vacante (es como se identifica la vacante abierta).
+  s10.dom.reconfigure({ url: 'https://www.linkedin.com/jobs/search-results/?currentJobId=' + ID });
+
+  APP.processAll(s10.doc, { getDescription: APP.makeGetDescription(s10.doc), health: false });
+  check('al abrir la vacante, la etiqueta se corrige a EN',
+    card.getAttribute('data-llf-lang') === 'en',
+    card.getAttribute('data-llf-lang') + ' (src=' + card.getAttribute('data-llf-src') + ')');
+  check('la corrección sobrescribe la caché envenenada',
+    APP.FETCH_CACHE[ID] === 'en', JSON.stringify(APP.FETCH_CACHE[ID]));
+
+  // Y persiste cuando el panel se cierra.
+  if (pane.parentNode) pane.parentNode.removeChild(pane);
+  APP.processAll(s10.doc, { getDescription: APP.makeGetDescription(s10.doc), health: false });
+  check('la corrección persiste tras cerrar el panel',
+    card.getAttribute('data-llf-lang') === 'en', card.getAttribute('data-llf-lang'));
+})();
+
+// ── Escenario 11: la descripción del endpoint público debe ser confiable ───
+// Si el fetch captura el chrome de la página pública (menú, footer, "Empleos
+// similares"), está todo en español y cualquier aviso en inglés sale 'es'.
+// Ante la duda hay que devolver '' y dejar la vacante en '??': un «??» honesto
+// es mejor que una etiqueta equivocada que además queda cacheada.
+console.log('\n═══ Extracción de la descripción del endpoint público ═══');
+(function escenario11() {
+  const DESC_EN = 'We are looking for a senior backend engineer with experience in distributed ' +
+    'systems. You will design and build services, review code and mentor other developers.';
+
+  const okHtml = '<html><body><div class="show-more-less-html__markup relative">' +
+    '<p>' + DESC_EN + '</p></div></body></html>';
+  const extraida = SEL.extractDescriptionFromHTML(okHtml);
+  check('extrae la descripción real del contenedor público',
+    extraida.indexOf('senior backend engineer') !== -1, JSON.stringify(extraida.slice(0, 60)));
+  check('y esa descripción se detecta como EN',
+    SEL.detect(extraida).lang === 'en', SEL.detect(extraida).lang);
+
+  // El caso peligroso: no hay contenedor de descripción, pero sí media página
+  // pública en español. Antes esto se capturaba hasta el final del documento.
+  const chromeHtml = '<html><body><div id="job-details">' +
+    '<p>' + DESC_EN + '</p></div>' +
+    '<footer><a>Iniciar sesión</a><a>Regístrate</a><h2>Empleos similares</h2>' +
+    '<a>Aviso de privacidad</a><a>Política de cookies</a><a>Condiciones de uso</a>' +
+    '<p>Explorá empleos en Argentina, Brasil y el resto del mundo con la comunidad de LinkedIn</p>' +
+    '</footer></body></html>';
+  const chromeOut = SEL.extractDescriptionFromHTML(chromeHtml);
+  check('descarta la captura cuando arrastra chrome de la página pública',
+    chromeOut === '', JSON.stringify(chromeOut.slice(0, 80)));
+  check('el detector de chrome reconoce el patrón',
+    SEL.looksLikeGuestChrome('Iniciar sesión Regístrate Empleos similares') === true);
+  check('y no marca como chrome una descripción normal',
+    SEL.looksLikeGuestChrome(DESC_EN) === false);
+  check('un HTML sin descripción devuelve vacío (no adivina)',
+    SEL.extractDescriptionFromHTML('<html><body><p>nada útil</p></body></html>') === '');
+
+  // El caso que causaba las etiquetas ES equivocadas: sin panel abierto, la
+  // "descripción" no debe salir del listado de vacantes (todo en español).
+  const soloLista = buildDom2026();
+  const textoSinPanel = SEL.getDetailDescription(soloLista.doc);
+  check('sin panel de detalle NO se devuelve el texto de la lista como descripción',
+    textoSinPanel === '', JSON.stringify(String(textoSinPanel).slice(0, 80)));
+  check('looksLikeJobList reconoce el listado por sus cadenas repetidas',
+    SEL.looksLikeJobList('Publicado hace 5 meses Evaluando solicitudes de forma activa ' +
+      'Publicado hace 1 semana Solicitados') === true);
+  check('y no confunde una descripción real con el listado',
+    SEL.looksLikeJobList(DESC_EN) === false);
+})();
+
 // ── Escenario 9: canario de salud ──────────────────────────────────────────
 // En un mismo día hubo dos fallas silenciosas: badges invisibles (v0.5.3) y
 // 19/19 tarjetas mal etiquetadas ES (v0.5.4). Ninguna avisó. Este canario las

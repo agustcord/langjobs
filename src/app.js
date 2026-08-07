@@ -76,11 +76,19 @@
       // re-etiquetado: al resolverse la vacante, el hash cambia y processCard
       // deja de reusar el '??' anterior.
       h += '|CACHE:' + FETCH_CACHE[ck];
-    } else {
-      const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-      const desc = panelDescriptionFor(card, d, document);
-      if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     }
+    // v0.5.7 — BUG CORREGIDO: esto estaba en un `else` del bloque anterior, así
+    // que una vez que la caché tenía un valor (por ejemplo uno EQUIVOCADO puesto
+    // por el fetch en segundo plano), el hash ya no miraba el panel de detalle.
+    // Consecuencia reportada en campo: abrías la vacante, el panel mostraba el
+    // aviso en inglés, y la tarjeta seguía marcada ES para siempre. El hash no
+    // cambiaba, así que processCard reusaba la etiqueta anterior y tagCard nunca
+    // corría. Ahora se suman las dos señales: la descripción del panel es la
+    // evidencia más fuerte (es el texto que el usuario está viendo) y siempre
+    // debe poder corregir a la caché.
+    const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+    const desc = panelDescriptionFor(card, d, document);
+    if (desc && desc.trim()) h += '|D:' + desc.replace(/\s+/g, ' ').slice(0, 120);
     return h;
   }
 

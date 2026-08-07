@@ -717,6 +717,21 @@
           src: (c.getAttribute('data-llf-src') || '?').replace('async-fetch', 'fetch'),
         };
       }),
+      // Qué ofrece el panel de detalle. Importa porque si no hay contenedor
+      // explícito, la descripción hay que acotarla al panel a mano; si se
+      // adivina sobre el documento, se termina leyendo la lista (todo en ES).
+      panel: (function () {
+        var jd = document.querySelector('#job-details');
+        var jdesc = document.querySelector('.jobs-description, .jobs-description__content, .jobs-box__html-content');
+        var cont = jd || jdesc;
+        return {
+          tiene_job_details: !!jd,
+          tiene_jobs_description: !!jdesc,
+          links_jobs_view: document.querySelectorAll('a[href*="/jobs/view/"]').length,
+          chars_contenedor: cont ? (cont.textContent || '').replace(/\s+/g, ' ').trim().length : 0,
+          primeros_chars: cont ? (cont.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90) : '',
+        };
+      })(),
       jobids: (function () {
         var ok = 0, muestra = [];
         cards.forEach(function (c) {
