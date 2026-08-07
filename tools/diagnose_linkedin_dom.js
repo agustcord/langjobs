@@ -624,6 +624,98 @@
     return out;
   }
 
+  // ── Ver EL TEXTO que la extensión usa para decidir el idioma ──────────────
+  // Tres rondas de errores de clasificación se diagnosticaron a ciegas porque
+  // nunca vimos el texto. Estos dos comandos lo muestran.
+
+  // Réplica de src/selectors.js → extractDescriptionFromHTML (mantener a la par).
+  function extraerDeHTML(html) {
+    var patrones = [
+      ['show-more-less-html__markup', /<div[^>]*class="[^"]*show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/div>/i],
+      ['section.description', /<section[^>]*class="[^"]*description[^"]*"[^>]*>([\s\S]*?)<\/section>/i],
+      ['jobs-description-content__text', /<div[^>]*class="[^"]*jobs-description-content__text[^"]*"[^>]*>([\s\S]*?)<\/div>/i],
+      ['jobs-box__html-content', /<div[^>]*class="[^"]*jobs-box__html-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i],
+      ['#job-details', /<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i],
+    ];
+    for (var i = 0; i < patrones.length; i++) {
+      var m = html.match(patrones[i][1]);
+      if (m) {
+        return {
+          patron: patrones[i][0],
+          texto: m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+        };
+      }
+    }
+    return { patron: '(ninguno)', texto: '' };
+  }
+
+  // Hace la MISMA petición que hace la extensión y muestra qué texto obtiene.
+  // Sin jobId usa el de la URL. Devuelve una promesa: en la consola se ve solo.
+  function fetchTest(jobId) {
+    var id = String(jobId || (location.search.match(/currentJobId=(\d+)/) || [])[1] || '');
+    if (!id) { console.warn('Abrí una vacante primero, o pasá el id: __LJF_DIAG.fetchTest("4440882690")'); return null; }
+    var url = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/' + id;
+    console.log('%c Pidiendo ' + url + ' ', 'background:#0a66c2;color:#fff;font-weight:700');
+    return fetch(url).then(function (r) {
+      console.log('HTTP', r.status, r.ok ? '(OK)' : '(FALLA)');
+      return r.text();
+    }).then(function (html) {
+      var res = extraerDeHTML(html);
+      var out = {
+        jobId: id,
+        html_chars: html.length,
+        patron_que_matcheo: res.patron,
+        texto_chars: res.texto.length,
+        texto_palabras: res.texto ? res.texto.split(/\s+/).length : 0,
+        primeros_300: res.texto.slice(0, 300),
+        ultimos_150: res.texto.slice(-150),
+      };
+      console.log('%c TEXTO QUE LEE LA EXTENSIÓN ', 'background:#111;color:#0f0;font-weight:700');
+      console.log(JSON.stringify(out, null, 2));
+      if (!res.texto) {
+        console.warn('No se extrajo nada → la vacante queda en «??» (fail-open). Puede ser correcto.');
+      } else if (out.texto_palabras < 30) {
+        console.warn('MUY CORTO (' + out.texto_palabras + ' palabras): probablemente NO es el cuerpo del ' +
+                     'aviso sino un bloque de metadatos. v0.5.7 lo descarta a propósito.');
+      }
+      try { if (typeof copy === 'function') { copy(JSON.stringify(out, null, 2)); console.log('%c 📋 Copiado ', 'background:#16a34a;color:#fff'); } } catch (e) {}
+      return out;
+    }).catch(function (e) {
+      console.warn('La petición falló:', e && e.message);
+      return { error: String(e && e.message) };
+    });
+  }
+
+  // Qué texto se puede sacar del PANEL de detalle abierto.
+  function panelText() {
+    var explicito = document.querySelector('#job-details, .jobs-description__content, .jobs-description, .jobs-box__html-content');
+    var pane = null;
+    var link = document.querySelector('a[href*="/jobs/view/"]');
+    if (link) {
+      var el = link;
+      for (var i = 0; i < 12; i++) {
+        var p = el.parentElement;
+        if (!p || !p.querySelectorAll) break;
+        if (p.querySelectorAll(DISMISS_SEL).length > 0) break; // ya toca la lista
+        el = p;
+        if ((el.textContent || '').length > 200) pane = el;
+      }
+    }
+    var txt = function (n) { return n ? (n.textContent || '').replace(/\s+/g, ' ').trim() : ''; };
+    var out = {
+      contenedor_explicito: explicito ? desc(explicito) : null,
+      chars_explicito: txt(explicito).length,
+      panel_acotado: pane ? desc(pane) : null,
+      chars_panel: txt(pane).length,
+      primeros_300: (txt(explicito) || txt(pane)).slice(0, 300),
+    };
+    console.log('%c TEXTO DEL PANEL DE DETALLE ', 'background:#111;color:#0f0;font-weight:700');
+    console.log(JSON.stringify(out, null, 2));
+    if (!explicito && !pane) console.warn('No se pudo delimitar el panel: la extensión no va a poder leer el aviso.');
+    try { if (typeof copy === 'function') { copy(JSON.stringify(out, null, 2)); console.log('%c 📋 Copiado ', 'background:#16a34a;color:#fff'); } } catch (e) {}
+    return out;
+  }
+
   function mark() {
     var cards = api.cards && api.cards.length ? api.cards : getDomCards(document);
     cards.forEach(function (c, i) {
@@ -775,7 +867,7 @@
   }
 
   var api = {
-    report: report, hunt: hunt,
+    report: report, hunt: hunt, fetchTest: fetchTest, panelText: panelText,
     run: run, trace: trace, ids: ids, ariaLabels: ariaLabels, mark: mark,
     lines: lines, internals: internals,
     getDomCards: getDomCards, cards: [],

@@ -888,9 +888,9 @@
       const pane = detailPaneFromLink(root);
       if (pane) texto = descriptionFromDetail(pane);
     }
-    if (!texto) return '';
-    // Red de seguridad final: si lo capturado parece la lista, se descarta.
-    if (looksLikeJobList(texto)) return '';
+    // Mismo criterio de confianza que para el endpoint público: si no parece el
+    // cuerpo de un aviso, mejor '' y que la vacante quede en '??'.
+    if (!isTrustworthyDescription(texto)) return '';
     return texto;
   }
 
@@ -984,6 +984,46 @@
     return false;
   }
 
+  // Bloque de metadatos del aviso ("Seniority level / Employment type / Job
+  // function / Industries"). En la página pública viene en INGLÉS aunque el
+  // aviso esté en español, así que si se captura ese bloque en vez del cuerpo,
+  // un aviso en español se clasifica 'en'. Es el error más grave posible: en
+  // modo ocultar, esconde vacantes válidas.
+  const CRITERIA_MARKERS = [
+    'seniority level', 'employment type', 'job function', 'industries',
+    'referrals increase', 'get notified about new', 'similar jobs',
+    'nivel de antigüedad', 'tipo de empleo', 'función laboral', 'sectores',
+  ];
+  function looksLikeCriteriaBlock(text) {
+    const low = (text || '').toLowerCase();
+    let hits = 0;
+    for (let i = 0; i < CRITERIA_MARKERS.length; i++) {
+      if (low.indexOf(CRITERIA_MARKERS[i]) !== -1) hits++;
+      if (hits >= 2) return true;
+    }
+    return false;
+  }
+
+  // ¿Este texto es realmente el cuerpo de un aviso, y por lo tanto evidencia
+  // confiable de su idioma? (v0.5.7)
+  // El detector es bueno con prosa y malo con etiquetas de interfaz: 20 palabras
+  // de metadatos alcanzan para decidir un idioma equivocado, y ese resultado
+  // queda cacheado. Un aviso real tiene cientos de palabras. Ante la duda se
+  // devuelve '' y la vacante queda en '??' (fail-open).
+  function isTrustworthyDescription(text) {
+    const t = cleanText(text || '');
+    if (t.length < 180) return false;
+    const tokens = t.split(/\s+/).length;
+    if (tokens < 30) return false;
+    if (t.length > 30000) return false;      // se capturó media página
+    if (looksLikeGuestChrome(t)) return false;
+    if (looksLikeJobList(t)) return false;
+    // Bloque de metadatos suelto: corto y lleno de etiquetas. Si además es
+    // largo, probablemente traiga el cuerpo del aviso y sí sirve.
+    if (looksLikeCriteriaBlock(t) && tokens < 150) return false;
+    return true;
+  }
+
   // Extrae la descripción de la respuesta del endpoint público de la vacante.
   // v0.5.7: endurecido. Antes había patrones abiertos del tipo
   //   /<div[^>]*id="job-details"[^>]*>([\s\S]*?)$/
@@ -1004,11 +1044,7 @@
       htmlString.match(/<div[^>]*id="job-details"[^>]*>([\s\S]*?)<\/section>/i);
     if (!match) return '';
     const cleaned = cleanText(match[1].replace(/<[^>]+>/g, ' '));
-    if (cleaned.length < 50) return '';
-    // Tope de tamaño: una descripción real no pasa de unos miles de caracteres.
-    // Si es enorme, se capturó media página y el texto no es confiable.
-    if (cleaned.length > 30000) return '';
-    if (looksLikeGuestChrome(cleaned)) return '';
+    if (!isTrustworthyDescription(cleaned)) return '';
     return cleaned;
   }
 
@@ -1103,6 +1139,8 @@
     extractDescriptionFromHTML: extractDescriptionFromHTML,
     looksLikeGuestChrome: looksLikeGuestChrome,
     looksLikeJobList: looksLikeJobList,
+    looksLikeCriteriaBlock: looksLikeCriteriaBlock,
+    isTrustworthyDescription: isTrustworthyDescription,
     getActiveJobId: getActiveJobId,
     getDetailTitle: getDetailTitle,
     getDetailCompany: getDetailCompany,

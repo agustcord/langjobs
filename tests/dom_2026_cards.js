@@ -570,8 +570,15 @@ console.log('\n═══ Abrir la vacante corrige una etiqueta cacheada mal ═�
 // es mejor que una etiqueta equivocada que además queda cacheada.
 console.log('\n═══ Extracción de la descripción del endpoint público ═══');
 (function escenario11() {
-  const DESC_EN = 'We are looking for a senior backend engineer with experience in distributed ' +
-    'systems. You will design and build services, review code and mentor other developers.';
+  // Largo realista a propósito: v0.5.7 exige 180+ caracteres y 30+ palabras
+  // para confiar en un texto como evidencia de idioma. Un bloque de metadatos
+  // ("Seniority level / Employment type") no llega, y un aviso real sí.
+  const DESC_EN = 'We are looking for a senior backend engineer with solid experience in ' +
+    'distributed systems and cloud infrastructure. You will design and build services, ' +
+    'review code from other members of the team and help us shape the technical roadmap ' +
+    'of the platform. We expect strong communication skills and the ability to work ' +
+    'autonomously in a remote first environment. Previous experience mentoring other ' +
+    'developers is considered a plus for this position.';
 
   const okHtml = '<html><body><div class="show-more-less-html__markup relative">' +
     '<p>' + DESC_EN + '</p></div></body></html>';
@@ -610,6 +617,34 @@ console.log('\n═══ Extracción de la descripción del endpoint público �
       'Publicado hace 1 semana Solicitados') === true);
   check('y no confunde una descripción real con el listado',
     SEL.looksLikeJobList(DESC_EN) === false);
+
+  // ── El error MÁS GRAVE: un aviso en español clasificado EN ────────────────
+  // Reporte de campo: "Analista de Transformación Digital" salió EN. En la
+  // página pública, el bloque de metadatos del aviso viene en INGLÉS aunque el
+  // aviso esté en español. Si se captura ese bloque en vez del cuerpo, un aviso
+  // español se marca EN — y en modo ocultar, se esconde una vacante válida.
+  const CRITERIA_EN = 'Seniority level Mid-Senior level Employment type Full-time ' +
+    'Job function Information Technology Industries Software Development ' +
+    'Referrals increase your chances of interviewing at this company by 2x ' +
+    'Get notified about new Analyst jobs in Rosario, Santa Fe, Argentina.';
+  check('el bloque de metadatos en inglés se reconoce como tal',
+    SEL.looksLikeCriteriaBlock(CRITERIA_EN) === true);
+  check('y NO se acepta como evidencia de idioma (evita marcar EN un aviso ES)',
+    SEL.isTrustworthyDescription(CRITERIA_EN) === false,
+    'palabras=' + CRITERIA_EN.split(/\s+/).length);
+  check('un texto de 20 palabras nunca alcanza para decidir un idioma',
+    SEL.isTrustworthyDescription('Buscamos analista para el área comercial de la empresa en Rosario zona sur') === false);
+  check('una descripción larga y real sí se acepta',
+    SEL.isTrustworthyDescription(DESC_EN) === true,
+    'chars=' + DESC_EN.length + ' palabras=' + DESC_EN.split(/\s+/).length);
+
+  // Y el caso end-to-end: HTML público cuyo único texto es el bloque de
+  // metadatos en inglés → no se extrae nada → la vacante queda en «??».
+  const soloCriteria = '<html><body><div class="show-more-less-html__markup">' +
+    CRITERIA_EN + '</div></body></html>';
+  check('un HTML con solo metadatos en inglés no produce descripción',
+    SEL.extractDescriptionFromHTML(soloCriteria) === '',
+    JSON.stringify(SEL.extractDescriptionFromHTML(soloCriteria).slice(0, 60)));
 })();
 
 // ── Escenario 9: canario de salud ──────────────────────────────────────────
