@@ -490,6 +490,67 @@ check('un título que EMPIEZA con "es" no se filtra como ruido',
 check('una empresa que EMPIEZA con "en" no se filtra como ruido',
   esData.company === 'Encargados SA', JSON.stringify(esData.company));
 
+// ── Escenario 9: canario de salud ──────────────────────────────────────────
+// En un mismo día hubo dos fallas silenciosas: badges invisibles (v0.5.3) y
+// 19/19 tarjetas mal etiquetadas ES (v0.5.4). Ninguna avisó. Este canario las
+// convierte en un warning, una vez por sesión y por problema.
+console.log('\n═══ Canario de salud ═══');
+(function escenario9() {
+  const codes = function (h) { return h.issues.map(function (i) { return i.code; }); };
+
+  // (a) Página de empleos sin ninguna tarjeta → selectores rotos.
+  const vacio = new JSDOM('<!doctype html><html><body><div id="x"></div></body></html>',
+    { pretendToBeVisual: true, url: 'https://www.linkedin.com/jobs/search-results/' });
+  global.window = vacio.window;
+  global.document = vacio.window.document;
+  const hVacio = APP.health(vacio.window.document);
+  check('detecta 0 tarjetas en una página de empleos', codes(hVacio).indexOf('no-cards') !== -1,
+    JSON.stringify(codes(hVacio)));
+
+  // (b) Tarjetas presentes y etiquetadas → sin alarmas.
+  const sano = buildDom2026();
+  global.window = sano.dom.window;
+  global.document = sano.dom.window.document;
+  APP.processAll(sano.doc, { getDescription: APP.makeGetDescription(sano.doc), health: false });
+  const hSano = APP.health(sano.doc);
+  check('no alarma cuando hay tarjetas con badge', codes(hSano).indexOf('no-badges') === -1,
+    JSON.stringify(codes(hSano)));
+  check('cuenta las tarjetas y los badges', hSano.cards === JOBS.length && hSano.badges === JOBS.length,
+    'cards=' + hSano.cards + ' badges=' + hSano.badges);
+
+  // (c) Badges borrados por un re-render → alarma.
+  Array.prototype.forEach.call(sano.doc.querySelectorAll('.llf-badge'), function (b) { b.remove(); });
+  check('detecta tarjetas sin ningún badge', codes(APP.health(sano.doc)).indexOf('no-badges') !== -1);
+
+  // (d) Sin jobId en ninguna tarjeta → la Capa 4 quedaría muerta.
+  const sinId = buildDom2026();
+  global.window = sinId.dom.window;
+  global.document = sinId.dom.window.document;
+  for (let i = 0; i < 4; i++) {
+    const w = sinId.doc.createElement('div');
+    const card = sinId.doc.createElement('div');
+    const b = sinId.doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «Puesto ' + i + '»');
+    card.appendChild(b);
+    w.appendChild(card);
+    sinId.list.appendChild(w);
+  }
+  APP.processAll(sinId.doc, { health: false });
+  check('avisa cuando ninguna tarjeta expone jobId',
+    codes(APP.health(sinId.doc)).indexOf('no-jobids') !== -1,
+    JSON.stringify(codes(APP.health(sinId.doc))));
+
+  // (e) El canario no debe avisar dos veces por el mismo problema.
+  const antes = [];
+  const warnReal = console.warn;
+  console.warn = function (m) { antes.push(m); };
+  APP.health(sinId.doc);
+  APP.health(sinId.doc);
+  console.warn = warnReal;
+  check('no repite el warning del mismo problema', antes.length === 0,
+    'warnings repetidos=' + antes.length);
+})();
+
 // ── Escenario 8: la EMPRESA no debe decidir el idioma ─────────────────────
 // Regresión introducida en v0.5.4 y detectada en campo: al agregar el fallback
 // estructural de empresa, el nombre de la empresa entró al detector. Una sola

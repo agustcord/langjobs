@@ -1727,6 +1727,102 @@
     if (unkNode) unkNode.textContent = stats.unknownCount;
   }
 
+  // ── Canario de salud (v0.5.6) ──────────────────────────────────────────────
+  // Motivación empírica: en un mismo día hubo DOS fallas silenciosas seguidas.
+  //   1. v0.5.3 dejó de etiquetar la lista (badges anclados en un wrapper 0x0).
+  //   2. v0.5.4 etiquetó 19 de 19 tarjetas como ES por contaminar el input del
+  //      detector con el nombre de la empresa.
+  // Ninguna avisó nada: se detectaron porque el usuario las vio. Este canario
+  // convierte esas fallas en un warning en consola, una sola vez por sesión y
+  // por problema (nunca en bucle), y queda disponible como API para el popup.
+  const HEALTH_WARNED = {};
+  let FIRST_RUN_AT = 0;
+
+  function health(root) {
+    const doc = root || (typeof window !== 'undefined' ? window.document : null);
+    const out = { issues: [], cards: 0, badges: 0, withJobId: 0, byDescription: 0, unknowns: 0 };
+    if (!doc || !doc.querySelectorAll) return out;
+
+    const cards = getDomCards(doc);
+    out.cards = cards.length;
+    out.badges = doc.querySelectorAll('.llf-badge').length;
+
+    let misplaced = 0;
+    let measurable = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i];
+      if (selectors.extractFromCard(c).jobId) out.withJobId++;
+      const src = c.getAttribute && c.getAttribute('data-llf-src');
+      if (src === 'description' || src === 'async-fetch' || src === 'panel-cache') out.byDescription++;
+      if (c.getAttribute && c.getAttribute('data-llf-lang') === 'unknown') out.unknowns++;
+
+      // Geometría: solo se evalúa si hay layout real (en jsdom todo es 0 y en
+      // una lista virtualizada las tarjetas fuera de vista también).
+      if (i < 4 && hasLayoutBox(c) && c.getBoundingClientRect) {
+        const badge = c.querySelector && c.querySelector('.llf-badge');
+        if (badge && badge.getBoundingClientRect) {
+          const cr = c.getBoundingClientRect();
+          const br = badge.getBoundingClientRect();
+          if (br.width > 0 || br.height > 0) {
+            measurable++;
+            const dentro = br.left >= cr.left - 4 && br.left <= cr.right + 4 &&
+                           br.top >= cr.top - 4 && br.top <= cr.bottom + 4;
+            if (!dentro) misplaced++;
+          }
+        }
+      }
+    }
+
+    const onJobs = (typeof window !== 'undefined' && window.location &&
+                    String(window.location.pathname || '').indexOf('/jobs/') !== -1);
+    const elapsed = FIRST_RUN_AT ? (Date.now() - FIRST_RUN_AT) : 0;
+
+    if (onJobs && cards.length === 0) {
+      out.issues.push({
+        code: 'no-cards',
+        msg: 'CERO tarjetas detectadas en una página de empleos. LinkedIn probablemente cambió el DOM. ' +
+             'Diagnóstico: pegar tools/diagnose_linkedin_dom.js y correr __LJF_DIAG.ariaLabels().',
+      });
+    } else if (cards.length > 0) {
+      if (out.badges === 0) {
+        out.issues.push({ code: 'no-badges', msg: cards.length + ' tarjetas detectadas pero NINGÚN badge inyectado.' });
+      }
+      if (measurable > 0 && misplaced === measurable) {
+        out.issues.push({
+          code: 'badges-misplaced',
+          msg: 'los badges se están dibujando FUERA de su tarjeta (falta ancla con caja de layout). ' +
+               'Fue el bug de v0.5.3: revisar getDomCards/.llf-badge-host.',
+        });
+      }
+      if (cards.length >= 5 && out.withJobId === 0) {
+        out.issues.push({
+          code: 'no-jobids',
+          msg: 'ninguna tarjeta expone jobId: la Capa 4 (descripción) queda inactiva y van a sobrar «??». ' +
+               'Revisar el atributo componentkey en jobIdFromCard(); verificar con __LJF_DIAG.hunt().',
+        });
+      }
+      // Capa 4 en silencio: hay ids y dudosas, pero nada se resolvió por
+      // descripción pasados 15 s. Puede ser el endpoint público caído.
+      if (out.withJobId > 0 && out.unknowns >= 4 && out.byDescription === 0 && elapsed > 15000) {
+        out.issues.push({
+          code: 'layer4-idle',
+          msg: out.unknowns + ' tarjetas en «??» y ninguna resuelta por descripción tras 15 s. ' +
+               'Puede estar bloqueado el endpoint público (ver FETCH_TRIED).',
+        });
+      }
+    }
+
+    for (let k = 0; k < out.issues.length; k++) {
+      const it = out.issues[k];
+      if (HEALTH_WARNED[it.code]) continue;
+      HEALTH_WARNED[it.code] = true;
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[LangJobs] ⚠️ ' + it.code + ': ' + it.msg);
+      }
+    }
+    return out;
+  }
+
   const LAST_ERRORS = [];
   function processAll(root, opts) {
     opts = opts || {};
@@ -1746,6 +1842,10 @@
     });
     const document = root.ownerDocument || (typeof window !== 'undefined' ? window.document : root);
     renderBetaSuccessBanner(document, opts);
+    if (!FIRST_RUN_AT) FIRST_RUN_AT = Date.now();
+    if (opts.health !== false) {
+      try { health(root); } catch (e) { /* el canario nunca debe romper el etiquetado */ }
+    }
     return res;
   }
 
@@ -1935,6 +2035,7 @@
     setConfig: setConfig,
     clearAll: clearAll,
     classify: classify,
+    health: health,
     getDomCards: getDomCards,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
