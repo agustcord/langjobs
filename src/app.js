@@ -176,10 +176,28 @@
           if (desc && desc.trim()) {
             const lang = detector.detectLanguage(desc).lang;
             if (lang === 'es' || lang === 'en') {
+              // La caché se escribe SIEMPRE: está indexada por jobId, así que es
+              // correcta pase lo que pase con el nodo.
               FETCH_CACHE[jobId] = lang;
-              tagCard(card, function () { return desc; }, doc, { force: true });
-              const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
-              applyAction(card, { lang: lang }, document);
+
+              // v0.5.8 — GUARDA CONTRA NODOS RECICLADOS. `card` se capturó
+              // cuando se lanzó la petición. LinkedIn reutiliza los nodos del
+              // DOM al re-renderizar y scrollear, así que cuando la respuesta
+              // llega ese nodo puede estar mostrando OTRA vacante. Etiquetarlo
+              // le pega el idioma de una vacante al aviso de otra.
+              // Explica la paradoja medida en campo: la descripción de
+              // "Especialista en Marketing - Prospección B2B" es 100% español
+              // (26 hits ES, 0 EN) y sin embargo la tarjeta salió EN.
+              // Si el nodo ya no corresponde, no se toca: la tarjeta correcta
+              // toma el valor de la caché en el próximo pase del observer.
+              const idAhora = selectors.extractFromCard(card).jobId;
+              if (idAhora && idAhora !== jobId) {
+                _dbg('  → fetch de', jobId, 'descartado: el nodo ahora muestra', idAhora);
+              } else {
+                tagCard(card, function () { return desc; }, doc, { force: true });
+                const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
+                applyAction(card, { lang: lang }, document);
+              }
             }
           }
         })

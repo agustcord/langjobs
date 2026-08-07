@@ -647,6 +647,116 @@ console.log('\n═══ Extracción de la descripción del endpoint público �
     JSON.stringify(SEL.extractDescriptionFromHTML(soloCriteria).slice(0, 60)));
 })();
 
+// ── Escenario 12: textos REALES capturados en campo (2026-08-06) ───────────
+// Medidos con __LJF_DIAG.fetchTest() y .panelText() sobre dos vacantes reales.
+// Fijan la decisión de v0.5.8: el endpoint público es confiable, el panel no.
+console.log('\n═══ Textos reales de campo: fetch confiable, panel inservible ═══');
+(function escenario12() {
+  // Vacante ES — descripción del endpoint público (514 palabras, prosa limpia).
+  const ES_FETCH = 'America Digital busca profesionales con formación académica en comunicación y ' +
+    'periodismo. Con más de 2 años de experiencia en procesos B2B y social selling en plataformas ' +
+    'como Facebook, LinkedIn, Twitter y YouTube. El candidato ideal estará enfocado en generación ' +
+    'de leads calificados, análisis de datos y en el cumplimiento de los objetivos comerciales de ' +
+    'venta de delegaciones empresas al congreso America Digital y a la venta de nuestro medio.';
+  // Vacante EN — descripción del endpoint público (296 palabras).
+  const EN_FETCH = 'Company Description Louis Dreyfus Company is a leading merchant and processor ' +
+    'of agricultural goods. Our activities span the entire value chain, from field to table. ' +
+    'Through a diverse portfolio of business lines, we leverage our global reach and extensive ' +
+    'asset network to serve customers and consumers around the world. Strong stakeholder ' +
+    'management skills. Experience in industrial or operational environments is a plus.';
+  // Lo que devolvía el PANEL de la vacante EN: chrome en español sobre un aviso
+  // en inglés. El detector lo llama 'es' — de ahí las etiquetas equivocadas.
+  const PANEL_EN = 'Ssr. Learning & Development Analyst Louis Dreyfus Company • Rosario, Santa Fe, ' +
+    'Argentina Guardar Solicitar Louis Dreyfus Company Ssr. Learning & Development Analyst ' +
+    'Rosario, Santa Fe, Argentina · Compartido hace 3 semanas · Más de 100 personas han hecho ' +
+    'clic en «Solicitar» Respuestas gestionadas fuera de LinkedIn Estado de la solicitud';
+
+  check('la descripción real ES del endpoint se detecta como es',
+    SEL.detect(ES_FETCH).lang === 'es', SEL.detect(ES_FETCH).lang);
+  check('la descripción real EN del endpoint se detecta como en',
+    SEL.detect(EN_FETCH).lang === 'en', SEL.detect(EN_FETCH).lang);
+  check('el texto del panel de una vacante EN se detectaría como es (por eso se descartó)',
+    SEL.detect(PANEL_EN).lang === 'es', SEL.detect(PANEL_EN).lang);
+
+  // Panel de la UI 2026 (sin contenedor explícito) → no se usa como descripción.
+  const panelDom = new JSDOM('<!doctype html><html><body>' +
+    '<div id="pane"><a href="/jobs/view/4434650098/">Ssr. Learning &amp; Development Analyst</a>' +
+    '<div>' + PANEL_EN + '</div></div></body></html>', { pretendToBeVisual: true });
+  check('sin #job-details ni .jobs-description, el panel NO aporta descripción',
+    SEL.getDetailDescription(panelDom.window.document) === '',
+    JSON.stringify(String(SEL.getDetailDescription(panelDom.window.document)).slice(0, 70)));
+
+  // Con contenedor explícito (UI legacy) sí se usa.
+  const legacyDom = new JSDOM('<!doctype html><html><body>' +
+    '<div id="job-details">' + EN_FETCH + '</div></body></html>', { pretendToBeVisual: true });
+  check('con #job-details (UI legacy) el panel sí aporta la descripción',
+    SEL.getDetailDescription(legacyDom.window.document).indexOf('Louis Dreyfus') !== -1);
+})();
+
+// ── Escenario 13: nodo reciclado durante un fetch en vuelo ─────────────────
+// Explica la paradoja de campo: la descripción de "Especialista en Marketing -
+// Prospección B2B" es 100% española (26 hits ES, 0 EN) y la tarjeta salió EN.
+// `card` se captura al lanzar la petición; si LinkedIn recicla ese nodo antes de
+// que llegue la respuesta, se le estampa el idioma de OTRA vacante.
+(async function escenario13() {
+  console.log('\n═══ Nodo reciclado mientras el fetch está en vuelo ═══');
+  const s13 = buildDom2026();
+  global.window = s13.dom.window;
+  global.document = s13.dom.window.document;
+
+  const ID_VIEJO = '4400000001';
+  const ID_NUEVO = '4400000002';
+  const inner = (function () {
+    const doc = s13.doc;
+    const w = doc.createElement('div');
+    const c = doc.createElement('div');
+    const i = doc.createElement('div');
+    i.setAttribute('componentkey', 'job-card-component-ref-' + ID_VIEJO);
+    const p = doc.createElement('p'); p.textContent = 'Tech Lead'; i.appendChild(p);
+    const p2 = doc.createElement('p'); p2.textContent = 'Kunan'; i.appendChild(p2);
+    const p3 = doc.createElement('p'); p3.textContent = 'Rosario (Híbrido)'; i.appendChild(p3);
+    const b = doc.createElement('button');
+    b.setAttribute('aria-label', 'Descartar empleo «Tech Lead»');
+    i.appendChild(b);
+    c.appendChild(i);
+    w.appendChild(c);
+    s13.list.appendChild(w);
+    return i;
+  })();
+  const card13 = inner.parentElement;
+
+  const realFetch = global.fetch;
+  global.fetch = function () {
+    return Promise.resolve({
+      ok: true,
+      text: function () {
+        return Promise.resolve('<div class="show-more-less-html__markup">' +
+          'We are hiring a technical leader to drive the architecture of our platform and to ' +
+          'mentor the engineering team. You will work closely with product managers and with ' +
+          'other senior engineers on the design of new services and on the quality of the code.' +
+          '</div>');
+      },
+    });
+  };
+
+  try {
+    APP.processAll(s13.doc, { health: false }); // dispara el fetch para ID_VIEJO
+    // LinkedIn recicla el nodo ANTES de que llegue la respuesta.
+    inner.setAttribute('componentkey', 'job-card-component-ref-' + ID_NUEVO);
+    await new Promise(function (r) { setTimeout(r, 20); });
+
+    check('la caché guarda el idioma bajo el jobId correcto',
+      APP.FETCH_CACHE[ID_VIEJO] === 'en', JSON.stringify(APP.FETCH_CACHE[ID_VIEJO]));
+    check('el nodo reciclado NO recibe el idioma de la vacante vieja',
+      card13.getAttribute('data-llf-lang') !== 'en',
+      'lang=' + card13.getAttribute('data-llf-lang'));
+    check('y la vacante vieja no quedó sin cachear (se resuelve al reaparecer)',
+      typeof APP.FETCH_CACHE[ID_VIEJO] === 'string');
+  } finally {
+    global.fetch = realFetch;
+  }
+})();
+
 // ── Escenario 9: canario de salud ──────────────────────────────────────────
 // En un mismo día hubo dos fallas silenciosas: badges invisibles (v0.5.3) y
 // 19/19 tarjetas mal etiquetadas ES (v0.5.4). Ninguna avisó. Este canario las

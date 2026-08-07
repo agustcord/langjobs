@@ -494,38 +494,31 @@
     return false;
   }
 
-  // Delimita el panel de detalle en la UI 2026, donde no hay clases semánticas.
-  // Discriminador medido en campo: el panel contiene el ÚNICO enlace
-  // a[href*="/jobs/view/"] de la página y CERO botones de descartar (los 25 ✕
-  // están en las tarjetas de la lista, en otra rama del DOM). Así se acota la
-  // búsqueda al panel y nunca se cae en la lista.
-  function detailPaneFromLink(root) {
-    if (!root || !root.querySelector) return null;
-    const link = root.querySelector('a[href*="/jobs/view/"]');
-    if (!link) return null;
-    let el = link;
-    let mejor = null;
-    for (let i = 0; i < 12; i++) {
-      const parent = el.parentElement;
-      if (!parent || !parent.querySelectorAll) break;
-      if (parent.querySelectorAll(DISMISS_SEL_S).length > 0) break; // ya toca la lista
-      el = parent;
-      if ((el.textContent || '').length > 200) mejor = el;
-    }
-    return mejor;
-  }
-
-  // Texto del panel de detalle (columna derecha) para la vacante activa.
-  // v0.5.7 — BUG CORREGIDO (causa probable de las etiquetas ES equivocadas):
-  // antes, si no encontraba un contenedor de detalle, caía a `main` y de ahí a
-  // una heurística de "mayor densidad de texto" sobre TODO el documento. En la
-  // UI 2026 el bloque de texto más grande de la página es la LISTA de vacantes,
-  // con toda su interfaz en español. Resultado: la "descripción" de la vacante
-  // abierta era en realidad el listado, el detector decía 'es', y ese valor
-  // quedaba cacheado — así que la tarjeta se marcaba ES y ya no había forma de
-  // corregirla ni abriéndola.
-  // Ahora: contenedores explícitos → panel acotado de la UI 2026 → '' (nada de
-  // adivinar sobre el documento completo).
+  // Texto del aviso en el panel de detalle (columna derecha).
+  //
+  // v0.5.8 — MEDIDO EN CAMPO, no supuesto. El panel de la UI 2026 no tiene
+  // `#job-details` ni `.jobs-description` (verificado: `chars_contenedor: 0`), y
+  // el texto que se puede sacar de él es INSERVIBLE para detectar idioma:
+  //
+  //   panel de una vacante EN inglés → "Ssr. Learning & Development Analyst
+  //   Louis Dreyfus Company • Rosario, Santa Fe, Argentina Guardar Solicitar …
+  //   Compartido hace 3 semanas · Más de 100 personas han hecho clic en
+  //   «Solicitar» Respuestas gestionadas fuera de…"
+  //
+  // Es chrome en ESPAÑOL describiendo un aviso en INGLÉS: el detector lo llama
+  // 'es' (7 hits ES, 0 EN). El panel mezcla los dos idiomas por construcción, así
+  // que cualquier heurística sobre él es una moneda al aire sesgada al idioma de
+  // la interfaz. Y el nodo que se obtenía variaba entre páginas
+  // (`DIV._12fe6c88` vs `DIV._54e8c074…`), o sea que además era inestable.
+  //
+  // En cambio el endpoint público SÍ devuelve el cuerpo limpio y correcto —
+  // medido en las dos vacantes: 514 palabras de prosa española → 'es' (26 hits
+  // ES, 0 EN); 296 palabras de prosa inglesa → 'en' (18 hits EN, 0 ES). Y ahora
+  // hay `jobId` para las 25 tarjetas, así que esa vía cubre toda la lista.
+  //
+  // Decisión: sin contenedor explícito, se devuelve ''. La resolución por
+  // descripción queda a cargo del fetch (Capa 4), que es la fuente confiable.
+  // La heurística sobre el panel se elimina en vez de seguir parcheándola.
   function getDetailDescription(root) {
     if (!root || !root.querySelector) return '';
     const explicito = root.querySelector('#job-details') ||
@@ -533,13 +526,8 @@
                       root.querySelector('.jobs-description') ||
                       root.querySelector('.jobs-box__html-content') ||
                       root.querySelector('.jobs-details__main-content');
-    let texto = '';
-    if (explicito) {
-      texto = descriptionFromDetail(explicito);
-    } else {
-      const pane = detailPaneFromLink(root);
-      if (pane) texto = descriptionFromDetail(pane);
-    }
+    if (!explicito) return '';
+    const texto = descriptionFromDetail(explicito);
     // Mismo criterio de confianza que para el endpoint público: si no parece el
     // cuerpo de un aviso, mejor '' y que la vacante quede en '??'.
     if (!isTrustworthyDescription(texto)) return '';
