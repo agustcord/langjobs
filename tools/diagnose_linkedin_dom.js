@@ -492,8 +492,13 @@
       try { names = el.getAttributeNames ? el.getAttributeNames() : []; } catch (e) { continue; }
       for (var n = 0; n < names.length; n++) {
         if (names[n] === 'class' || names[n] === 'style') continue;
-        var v = el.getAttribute(names[n]) || '';
-        if (v.indexOf(known) !== -1) { attrHit = { nodo: desc(el), atributo: names[n], valor: v.slice(0, 90) }; break; }
+        // OJO: no llamar `v` a esta variable — colisiona con la función de
+        // veredicto declarada más abajo (var gana sobre function declaration).
+        var attrVal = el.getAttribute(names[n]) || '';
+        if (attrVal.indexOf(known) !== -1) {
+          attrHit = { nodo: desc(el), atributo: names[n], valor: attrVal.slice(0, 90) };
+          break;
+        }
       }
     }
     out.detalle.atributo = attrHit;
@@ -552,6 +557,7 @@
       var gk = Object.keys(window);
       for (var g = 0; g < gk.length && !globalHit; g++) {
         var name = gk[g];
+        if (name === '__LJF_DIAG') continue; // no contarnos a nosotros mismos
         if (!/^__|linkedin|voyager|artdeco|preload|apollo|redux|store/i.test(name)) continue;
         var gv;
         try { gv = window[name]; } catch (e) { continue; }
@@ -564,15 +570,15 @@
     if (globalHit) out.via.push('window-global');
 
     // ── Veredicto ──
-    function v(ok, msg) {
+    var say = function (ok, msg) {
       console.log('%c ' + (ok ? 'OK  ' : '—   ') + '%c ' + msg,
         'background:' + (ok ? '#16a34a' : '#4b5563') + ';color:#fff;font-weight:700', '');
-    }
-    v(blobsConId > 0, 'JSON embebido en el DOM: ' + blobsConId + ' blob(s) con el id, ' +
+    };
+    say(blobsConId > 0, 'JSON embebido en el DOM: ' + blobsConId + ' blob(s) con el id, ' +
       blobsConJobPosting + ' con "jobPosting" (de ' + blobs.length + ' totales)');
-    v(!!attrHit, 'atributo con el id' + (attrHit ? ': ' + attrHit.atributo + ' en ' + attrHit.nodo : ''));
-    v(!!reactHit, 'expando de React con el id' + (reactHit ? ': ' + reactHit.path.slice(0, 80) : ''));
-    v(!!globalHit, 'global de window con el id' + (globalHit ? ': window.' + globalHit.global : ''));
+    say(!!attrHit, 'atributo con el id' + (attrHit ? ': ' + attrHit.atributo + ' en ' + attrHit.nodo : ''));
+    say(!!reactHit, 'expando de React con el id' + (reactHit ? ': ' + reactHit.path.slice(0, 80) : ''));
+    say(!!globalHit, 'global de window con el id' + (globalHit ? ': window.' + globalHit.global : ''));
 
     if (muestraShape) {
       console.log('%c Claves alrededor del id (¿hay description/title?) ', 'background:#111;color:#0f0');
