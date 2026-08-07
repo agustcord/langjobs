@@ -687,6 +687,27 @@
         sin_badge: sinBadge,
         badges_fuera_de_su_tarjeta: fueraDeTarjeta,
       },
+      // De dónde salió el idioma de cada tarjeta. Es LA validación de la
+      // Capa 4: 'title' = adivinado por el título (señal débil), 'async-fetch'
+      // / 'description' = leído del cuerpo real del aviso (señal fuerte).
+      fuentes: (function () {
+        var f = {};
+        var porFetch = [];
+        cards.forEach(function (c) {
+          var s = c.getAttribute('data-llf-src') || '(sin marca)';
+          f[s] = (f[s] || 0) + 1;
+          if (s === 'async-fetch' || s === 'description' || s === 'panel-cache') {
+            if (porFetch.length < 8) {
+              porFetch.push({
+                titulo: titleOf(c).slice(0, 45),
+                lang: c.getAttribute('data-llf-lang'),
+                via: s,
+              });
+            }
+          }
+        });
+        return { conteo: f, resueltas_por_descripcion: porFetch };
+      })(),
       jobids: (function () {
         var ok = 0, muestra = [];
         cards.forEach(function (c) {

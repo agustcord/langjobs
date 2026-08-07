@@ -579,7 +579,14 @@
         else if (reporterBtn.parentNode) reporterBtn.parentNode.removeChild(reporterBtn);
       }
     }
-    if (card.setAttribute) card.setAttribute('data-llf-lang', data.lang);
+    if (card.setAttribute) {
+      card.setAttribute('data-llf-lang', data.lang);
+      // v0.5.6: exponer DE DÓNDE salió el idioma. Sin esto no hay forma de
+      // saber en campo si una tarjeta se clasificó por el título (señal débil)
+      // o por la descripción real del aviso (señal fuerte), y por lo tanto no
+      // se puede validar una mejora de precisión: solo se ve el resultado.
+      card.setAttribute('data-llf-src', data.langSource || 'title');
+    }
     return data;
   }
 
@@ -766,13 +773,14 @@
     // v0.5.4: en la UI 2026 las tarjetas no tienen data-job-id; se limpian por
     // las marcas propias (data-llf-*) y por la clase host del badge.
     const cards = document.querySelectorAll(
-      '[data-llf-lang],[data-llf-hash],.' + CLS.host + ',[data-job-id]'
+      '[data-llf-lang],[data-llf-hash],[data-llf-src],.' + CLS.host + ',[data-job-id]'
     );
     Array.prototype.slice.call(cards).forEach(function (card) {
       if (!isJobCardContainer(card)) return;
       if (card.removeAttribute) {
         card.removeAttribute('data-llf-lang');
         card.removeAttribute('data-llf-hash');
+        card.removeAttribute('data-llf-src');
       }
       if (card.classList) card.classList.remove(CLS.hidden, CLS.dim, CLS.host);
       if (card.style && card.style.removeProperty) card.style.removeProperty('display');
