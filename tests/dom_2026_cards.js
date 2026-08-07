@@ -871,6 +871,84 @@ const cEs = buildCard8(s8.doc, s8.list, 'Analista de Gestión Contable', 'Globan
 check('un título realmente español sigue dando ES sin ayuda de la empresa',
   APP.classify(cEs, null).lang === 'es', APP.classify(cEs, null).lang);
 
+// ── Escenario 14: el badge va DEBAJO del ✕, no al lado (v0.5.10) ───────────
+// Bug de campo: con `top:8px; right:40px` el badge compartía renglón con el
+// título y, cuando el título envuelve a dos líneas ("Especialista en Marketing
+// - Prospección B2B"), lo tapaba. jsdom no hace layout, así que acá se
+// INYECTAN rectángulos reales (los medidos en campo: tarjeta 367x126, botón ✕
+// de 32x32 en la esquina superior derecha) para poder verificar la geometría
+// sin navegador.
+console.log('\n═══ Posición del badge: debajo del ✕ ═══');
+(function escenario14() {
+  const RECT_CARD = { left: 0, top: 0, right: 367, bottom: 126, width: 367, height: 126 };
+  const RECT_BTN  = { left: 327, top: 8, right: 359, bottom: 40, width: 32, height: 32 };
+
+  function stubBox(el, rect) {
+    el.getBoundingClientRect = function () { return rect; };
+    Object.defineProperty(el, 'offsetWidth',  { get: function () { return rect.width; }, configurable: true });
+    Object.defineProperty(el, 'offsetHeight', { get: function () { return rect.height; }, configurable: true });
+  }
+
+  const s14 = buildDom2026();
+  global.window = s14.dom.window;
+  global.document = s14.dom.window.document;
+
+  const card = s14.doc.querySelector('[data-test-card="0"]');
+  const btn = card.querySelector('button[aria-label^="Descartar empleo"]');
+  stubBox(card, RECT_CARD);
+  stubBox(btn, RECT_BTN);
+
+  APP.processAll(s14.doc, { getDescription: APP.makeGetDescription(s14.doc), health: false });
+  const badge = card.querySelector('.llf-badge');
+
+  check('la tarjeta con layout medible recibe badge', !!badge);
+  const top = badge ? parseInt(badge.style.top, 10) : NaN;
+  const right = badge ? parseInt(badge.style.right, 10) : NaN;
+  console.log('  badge medido → top=' + badge.style.top + ' right=' + badge.style.right);
+
+  check('el badge arranca DEBAJO del borde inferior del ✕',
+    top >= (RECT_BTN.bottom - RECT_CARD.top), 'top=' + top + ' vs ✕ bottom=' + RECT_BTN.bottom);
+  check('deja un espacio libre respecto del ✕ (no pega con su área de click)',
+    top === (RECT_BTN.bottom - RECT_CARD.top) + 6, 'top=' + top);
+  check('se alinea con el borde derecho del ✕ (misma columna, sin pisar el título)',
+    right === (RECT_CARD.right - RECT_BTN.right), 'right=' + right);
+  check('el badge no se sale de la tarjeta por abajo',
+    top <= RECT_CARD.height - 18, 'top=' + top + ' altura tarjeta=' + RECT_CARD.height);
+  check('el badge sigue sin capturar clicks (pointer-events:none en el CSS)',
+    (s14.doc.getElementById('llf-styles').textContent || '').indexOf('pointer-events:none') !== -1);
+  check('el color de fondo sobrevive al reposicionamiento',
+    !!badge && /background/.test(badge.getAttribute('style') || ''),
+    badge && badge.getAttribute('style'));
+
+  // Un segundo pase no debe perder la posición (cssText la borraba).
+  APP.processAll(s14.doc, { getDescription: APP.makeGetDescription(s14.doc), health: false });
+  const badge2 = card.querySelector('.llf-badge');
+  check('un pase posterior conserva la posición medida',
+    parseInt(badge2.style.top, 10) === top && parseInt(badge2.style.right, 10) === right,
+    'top=' + badge2.style.top + ' right=' + badge2.style.right);
+
+  // ✕ muy abajo: el badge se recorta contra el borde inferior, no se escapa.
+  const cardB = s14.doc.querySelector('[data-test-card="1"]');
+  const btnB = cardB.querySelector('button[aria-label^="Descartar empleo"]');
+  stubBox(cardB, { left: 0, top: 0, right: 367, bottom: 126, width: 367, height: 126 });
+  stubBox(btnB, { left: 327, top: 90, right: 359, bottom: 122, width: 32, height: 32 });
+  APP.processAll(s14.doc, { getDescription: APP.makeGetDescription(s14.doc), health: false });
+  const badgeB = cardB.querySelector('.llf-badge');
+  check('si el ✕ está al pie de la tarjeta, el badge se mantiene dentro',
+    parseInt(badgeB.style.top, 10) <= 126 - 18, 'top=' + badgeB.style.top);
+
+  // Sin layout medible (tarjeta virtualizada fuera de vista): manda el CSS.
+  const cardC = s14.doc.querySelector('[data-test-card="2"]');
+  const badgeC = cardC.querySelector('.llf-badge');
+  check('sin layout medible no se inventa una posición inline',
+    !badgeC.style.top && !badgeC.style.right,
+    'top=' + JSON.stringify(badgeC.style.top) + ' right=' + JSON.stringify(badgeC.style.right));
+  const css = s14.doc.getElementById('llf-styles').textContent || '';
+  check('el CSS por defecto ya coloca el badge debajo del ✕ (no a su izquierda)',
+    css.indexOf('top:44px') !== -1 && css.indexOf('right:8px') !== -1 &&
+    css.indexOf('right:40px') === -1);
+})();
+
 // ── Escenario 7: tope de reintentos del fetch (protección de la cuenta) ────
 // Con el jobId de vuelta, la Capa 4 se ejecuta de verdad en campo. Si el
 // endpoint público está caído o tira 429, cada pase del MutationObserver

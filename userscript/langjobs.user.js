@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         LangJobs — Filtro de vacantes LinkedIn por idioma
 // @namespace    https://github.com/agustcord/langjobs
-// @version      0.5.9
+// @version      0.5.10
 // @description  Etiqueta y filtra vacantes de LinkedIn por idioma (ES/EN) 100% local, sin enviar datos.
 // @author       agustcord
 // @match        https://www.linkedin.com/jobs/*
@@ -1614,7 +1614,13 @@
       // ancla del badge se marca explícitamente con esta clase. Sin ella el
       // badge (position:absolute) se ancla a un ancestro lejano y no se ve.
       '.' + CLS.host + '{position:relative !important;}\n' +
-      '.llf-badge{position:absolute !important;top:8px !important;right:40px !important;z-index:2147483647;' +
+      // v0.5.10: posición por DEFECTO = debajo del ✕, alineado al borde derecho
+      // de la tarjeta. Hasta v0.5.9 era `top:8px;right:40px` (al lado del ✕, a
+      // la misma altura), y el título largo de la vacante se lo comía. Cuando la
+      // tarjeta tiene layout medible, positionBadge() refina estos valores
+      // midiendo el botón real; estos números son el fallback (jsdom, tarjetas
+      // sin ✕ de la UI legacy, tarjetas fuera de vista en la lista virtualizada).
+      '.llf-badge{position:absolute !important;top:44px !important;right:8px !important;z-index:2147483647;' +
       'display:inline-flex !important;align-items:center !important;gap:3px !important;padding:1px 6px;border-radius:4px;' +
       'font-size:11px;font-weight:700;color:#fff;font-family:inherit;' +
       'line-height:1.4;pointer-events:none;}\n' +
@@ -1649,6 +1655,53 @@
   function ensureBadgeHost(card) {
     if (card && card.classList && !card.classList.contains(CLS.host)) {
       card.classList.add(CLS.host);
+    }
+  }
+
+  // ── Posición del badge: DEBAJO del ✕, nunca al lado (v0.5.10) ──────────────
+  // Problema medido en campo: con `top:8px; right:40px` el badge compartía
+  // renglón con el título de la vacante. Cuando el título es largo y envuelve a
+  // dos líneas (p. ej. "Especialista en Marketing - Prospección B2B"), el texto
+  // pasa por debajo del badge y queda ilegible. Y `right:40px` era un número
+  // mágico: daba por sentado un ✕ de 40px, sin validar en tarjetas promocionadas,
+  // con logo o guardadas.
+  //
+  // Regla nueva: se MIDE el rectángulo del botón ✕ y el badge se coloca alineado
+  // a su borde derecho, arrancando BADGE_GAP px por debajo de su borde inferior.
+  // Así queda en la columna del ✕ (zona sin texto) y fuera de su área de
+  // interacción, en cualquier variante de tarjeta. Además el badge conserva
+  // `pointer-events:none`, así que ni con solapamiento parcial podría robarle el
+  // click al botón.
+  //
+  // Devuelve true si pudo medir. Si la tarjeta no tiene layout (jsdom, tarjeta
+  // virtualizada fuera de vista) no toca nada y manda el CSS por defecto.
+  var BADGE_GAP = 6;
+  var BADGE_MIN_H = 18; // alto aproximado del badge, para no sacarlo de la tarjeta
+
+  function positionBadge(card, badge) {
+    if (!card || !badge || !badge.style || !badge.style.setProperty) return false;
+    try {
+      var anchor = card.querySelector ? card.querySelector(DISMISS_SEL) : null;
+      if (!anchor || !anchor.getBoundingClientRect || !card.getBoundingClientRect) return false;
+      if (!hasLayoutBox(card) || !hasLayoutBox(anchor)) return false;
+      var cr = card.getBoundingClientRect();
+      var ar = anchor.getBoundingClientRect();
+      if (!cr || !ar || !cr.height || !ar.height) return false;
+
+      var top = (ar.bottom - cr.top) + BADGE_GAP;
+      var right = cr.right - ar.right;
+
+      // Clamps: el badge nunca debe salirse de la tarjeta ni de su borde derecho.
+      if (right < 0) right = 0;
+      if (top < 0) top = 0;
+      var maxTop = cr.height - BADGE_MIN_H;
+      if (maxTop > 0 && top > maxTop) top = maxTop;
+
+      badge.style.setProperty('top', Math.round(top) + 'px', 'important');
+      badge.style.setProperty('right', Math.round(right) + 'px', 'important');
+      return true;
+    } catch (e) {
+      return false; // la posición nunca puede romper el etiquetado
     }
   }
 
@@ -1731,7 +1784,14 @@
         badge.appendChild(badgeLabelNode);
       }
       badgeLabelNode.textContent = b.label;
-      badge.style.cssText = 'background:' + b.color + ';';
+      // v0.5.10: setProperty en vez de `style.cssText = …`. cssText REEMPLAZA el
+      // atributo style completo, así que borraba el top/right inline calculado
+      // por positionBadge() en el pase anterior.
+      if (badge.style && badge.style.setProperty) badge.style.setProperty('background', b.color);
+      else badge.style.cssText = 'background:' + b.color + ';';
+      // Se reposiciona en CADA pase: LinkedIn re-renderiza la tarjeta y el ✕
+      // puede cambiar de tamaño o de sitio (tarjeta promocionada, con logo…).
+      positionBadge(card, badge);
 
       let reporterBtn = badge.querySelector('.llf-reporter-btn');
       if (isBeta) {
@@ -1844,6 +1904,12 @@
     const document = doc || (card.ownerDocument) || (typeof window !== 'undefined' ? window.document : null);
     ensureStyles(document);
     ensureBadgeHost(card); // idempotente: repone la clase si LinkedIn la borró
+    // v0.5.10: reposicionar SIEMPRE, también en el atajo por hash. La geometría
+    // de una tarjeta cambia sin que cambie su texto: al abrir el panel de
+    // detalle la lista se angosta, y una tarjeta re-renderizada puede quedar
+    // más alta o más baja. Como en ese camino tagCard() no se ejecuta, el badge
+    // se quedaría anclado a la medida vieja del ✕.
+    if (card.querySelector) positionBadge(card, card.querySelector('.llf-badge'));
     applyAction(card, data, document, opts.config);
     return data;
   }
@@ -2227,6 +2293,7 @@
     classify: classify,
     health: health,
     getDomCards: getDomCards,
+    positionBadge: positionBadge,
     extract: selectors.extractFromCard,
     hashOf: hashOf,
     makeGetDescription: makeGetDescription,
@@ -2253,7 +2320,7 @@
     // Sella la versión en el DOM (ver la nota del bundler de la extensión).
     try {
       if (document.documentElement) {
-        document.documentElement.setAttribute('data-llf-version', '0.5.9');
+        document.documentElement.setAttribute('data-llf-version', '0.5.10');
       }
     } catch (e) {}
     // T1.7: observar mutaciones (scroll infinito / nodos reciclados) con debounce.
@@ -2274,7 +2341,7 @@
             ? LangJobsApp.getDomCards(document)
             : Array.prototype.slice.call(document.querySelectorAll('[data-job-id]'));
           var lines = [];
-          lines.push('LangJobs DEBUG v0.5.9 — tarjetas=' + cards.length);
+          lines.push('LangJobs DEBUG v0.5.10 — tarjetas=' + cards.length);
           // Errores capturados por el blindaje de processAll (v0.3.0): si una
           // tarjeta lanzó, acá se ve CUÁL y POR QUÉ (sin consola).
           var errs = LangJobsApp.LAST_ERRORS || [];
